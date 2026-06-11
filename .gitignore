@@ -1,0 +1,57 @@
+# ---- Secrets / credentials (NEVER commit) ----
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.local
+**/.env.*.local
+firebase-service-account.json
+**/firebase-service-account.json
+*serviceAccount*.json
+*.pem
+*.key
+
+# ---- Databases / data ----
+*.db
+*.sqlite
+*.sqlite3
+backend/wedfind.db
+
+# ---- Uploaded / generated media ----
+uploads/
+**/temp_selfies/
+**/temp_processing/
+noface.png
+bad.txt
+p1.jpg
+
+# ---- Python ----
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ---- Node / Next.js ----
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# ---- Disabled nested git backup ----
+frontend/.git_disabled_backup/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+
+# ---- Claude / agent session files ----
+.claude/

@@ -1,0 +1,11 @@
+rules_version = '2';
+
+// Photos live in AWS S3, not Firebase Storage. No client touches this bucket,
+// so deny all access. (Backend Admin SDK, if ever used, bypasses these rules.)
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
