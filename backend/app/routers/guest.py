@@ -18,6 +18,7 @@ from ..services.face_engine import face_engine
 from ..services.face_processing import get_similarity
 from ..services.s3_service import s3_service
 from ..services import activity
+from ..core.limiter import limiter
 
 router = APIRouter()
 logger = logging.getLogger("wedfind.guest")
@@ -66,6 +67,7 @@ def get_public_event(slug: str, request: Request, db: Session = Depends(get_db))
 
 
 @router.post("/{slug}/selfie", response_model=schemas.SelfieMatchResponse)
+@limiter.limit("10/minute")
 async def match_selfie(
     slug: str,
     request: Request,

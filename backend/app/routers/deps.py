@@ -27,8 +27,10 @@ def _find_or_create_user(decoded: dict, db: Session) -> models.User:
 
     email = decoded.get("email")
     phone = decoded.get("phone_number")
-    # Phone-only sign-in (no email) => guest. Otherwise studio.
-    role = "guest" if phone and not email else "studio"
+    # Bootstrap: the very first user becomes studio (owner). Everyone after
+    # defaults to guest (least privilege); promote via /api/auth/promote.
+    is_first_user = db.query(models.User).count() == 0
+    role = "studio" if is_first_user else "guest"
     user = models.User(
         firebase_uid=uid,
         email=email,

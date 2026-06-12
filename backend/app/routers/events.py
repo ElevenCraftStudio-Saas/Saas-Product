@@ -4,7 +4,7 @@ from typing import List
 from ..database import get_db
 from ..models import models
 from ..schemas import schemas
-from .deps import get_current_user
+from .deps import get_current_studio
 from ..utils.qr import generate_qr_code
 import uuid
 import re
@@ -29,7 +29,7 @@ def slugify(text: str):
 def create_event(
     event_in: schemas.EventCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_studio)
 ):
     slug = f"{slugify(event_in.title)}-{str(uuid.uuid4())[:8]}"
     
@@ -77,7 +77,7 @@ def create_event(
 @router.get("/", response_model=List[schemas.EventResponse])
 def get_events(
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_studio)
 ):
     events = db.query(models.Event).filter(models.Event.photographer_id == current_user.id).all()
     for event in events:
@@ -91,7 +91,7 @@ def get_events(
 def get_event(
     event_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_studio)
 ):
     event = db.query(models.Event).filter(
         models.Event.id == event_id,
@@ -111,7 +111,7 @@ def get_event(
 def delete_event(
     event_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_studio)
 ):
     event = db.query(models.Event).filter(
         models.Event.id == event_id,
@@ -119,6 +119,23 @@ def delete_event(
     ).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
+
+    # Collect S3 keys (QR + all event photos) BEFORE the cascade delete.
+    s3_keys = []
+    if event.storage_provider == "s3" and event.storage_key:
+        s3_keys.append(event.storage_key)
+    for photo in event.photos:
+        if photo.storage_provider == "s3" and photo.storage_key:
+            s3_keys.append(photo.storage_key)
+
     db.delete(event)
     db.commit()
+
+    # Best-effort S3 cleanup (don't fail the request if a delete errors).
+    for key in s3_keys:
+        try:
+            s3_service.delete_file(key)
+        except Exception:
+            logger.exception("S3 cleanup failed for key=%s (event_id=%s)", key, event_id)
+
     return None

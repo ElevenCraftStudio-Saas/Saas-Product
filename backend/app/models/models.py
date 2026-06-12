@@ -45,7 +45,7 @@ class Photo(Base):
     __tablename__ = "photos"
 
     id = Column(Integer, primary_key=True, index=True)
-    event_id = Column(Integer, ForeignKey("events.id"))
+    event_id = Column(Integer, ForeignKey("events.id"), index=True)
     filename = Column(String)
     filepath = Column(String)
     storage_provider = Column(String, default="local") # "local" or "s3"
@@ -61,7 +61,7 @@ class FaceEmbedding(Base):
     __tablename__ = "face_embeddings"
 
     id = Column(Integer, primary_key=True, index=True)
-    photo_id = Column(Integer, ForeignKey("photos.id"))
+    photo_id = Column(Integer, ForeignKey("photos.id"), index=True)
     embedding = Column(JSON)  # Store list of floats
     face_box = Column(JSON)   # Store [x1, y1, x2, y2]
     created_at = Column(DateTime(timezone=True), server_default=func.now())
