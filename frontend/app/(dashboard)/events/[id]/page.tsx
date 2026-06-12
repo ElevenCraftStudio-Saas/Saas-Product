@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { Progress } from '@/components/ui/progress';
+import { FolderWatch } from '@/components/dashboard/folder-watch';
 
 export default function EventDetailsPage() {
   const { id } = useParams();
@@ -173,6 +174,9 @@ export default function EventDetailsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Auto folder upload (watchdog) */}
+        <FolderWatch eventId={id as string} />
       </div>
     </div>
   );

@@ -1,9 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List
-import os
-import uuid
-import shutil
 import logging
 from ..database import get_db
 from ..models import models
@@ -11,12 +8,10 @@ from ..schemas import schemas
 from .deps import get_current_studio
 from ..services.face_processing import process_photo_faces
 from ..services.s3_service import s3_service
+from ..services.photo_ingest import ingest_photo_bytes, is_allowed_image, MAX_FILE_SIZE
 
 router = APIRouter()
 logger = logging.getLogger("wedfind.photos")
-
-MAX_FILE_SIZE = 10 * 1024 * 1024 # 10MB
-ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/jpg"]
 
 @router.post("/upload/{event_id}", response_model=List[schemas.PhotoResponse])
 async def upload_photos(
@@ -30,71 +25,41 @@ async def upload_photos(
         models.Event.id == event_id,
         models.Event.photographer_id == current_user.id
     ).first()
-    
+
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    
+
     db_photos = []
-    skipped = []
     for file in files:
         logger.info("PHOTO_UPLOAD_START event=%s filename=%s mime=%s",
                     event_id, file.filename, file.content_type)
 
-        # 1. Validate MIME type
-        if file.content_type not in ALLOWED_MIME_TYPES:
-            logger.warning("PHOTO_UPLOAD_SKIPPED (bad mime) filename=%s mime=%s",
-                           file.filename, file.content_type)
-            skipped.append({"filename": file.filename, "reason": "invalid type"})
+        if not is_allowed_image(file.filename or ""):
+            logger.warning("PHOTO_UPLOAD_SKIPPED (bad type) filename=%s", file.filename)
             continue
 
-        # 2. Validate Size
-        file.file.seek(0, 2)
-        file_size = file.file.tell()
-        file.file.seek(0)
-        if file_size > MAX_FILE_SIZE:
+        content = await file.read()
+        if len(content) > MAX_FILE_SIZE:
             logger.warning("PHOTO_UPLOAD_SKIPPED (too large) filename=%s size=%s",
-                           file.filename, file_size)
-            skipped.append({"filename": file.filename, "reason": "exceeds 10MB"})
+                           file.filename, len(content))
             continue
 
-        file_ext = file.filename.split(".")[-1].lower()
-        unique_filename = f"{uuid.uuid4()}.{file_ext}"
-
-        # S3 Storage Key
-        s3_key = f"events/{event_id}/{unique_filename}"
-
-        # Upload to S3 — NO silent skip. A storage failure must be surfaced,
-        # not hidden (previous `continue` dropped photos with HTTP 200).
-        success = s3_service.upload_file(file.file, s3_key, file.content_type)
-        if not success:
-            logger.error("PHOTO_UPLOAD_FAILED event=%s filename=%s key=%s (see wedfind.s3 log for traceback)",
-                         event_id, file.filename, s3_key)
-            raise HTTPException(
-                status_code=502,
-                detail=f"Failed to upload '{file.filename}' to storage. No photos were saved past this point.",
-            )
+        # Reuse the shared ingest pipeline (S3 + DB) — single source of truth.
+        try:
+            db_photo = ingest_photo_bytes(db, event_id, file.filename, content, file.content_type)
+        except RuntimeError as e:
+            logger.error("PHOTO_UPLOAD_FAILED event=%s filename=%s: %s", event_id, file.filename, e)
+            raise HTTPException(status_code=502, detail=f"Failed to upload '{file.filename}' to storage.")
+        except ValueError as e:
+            logger.warning("PHOTO_UPLOAD_SKIPPED filename=%s: %s", file.filename, e)
+            continue
 
         logger.info("PHOTO_UPLOAD_SUCCESS event=%s filename=%s key=%s",
-                    event_id, file.filename, s3_key)
-
-        db_photo = models.Photo(
-            event_id=event_id,
-            filename=file.filename,
-            filepath=s3_key, # Use S3 key as filepath reference
-            storage_provider="s3",
-            storage_key=s3_key,
-            processing_status=models.ProcessingStatus.PENDING
-        )
-        db.add(db_photo)
-        db.commit()
-        db.refresh(db_photo)
-        
-        # Generate URL for response
-        db_photo.url = s3_service.generate_presigned_url(s3_key)
+                    event_id, file.filename, db_photo.storage_key)
+        db_photo.url = s3_service.generate_presigned_url(db_photo.storage_key)
         db_photos.append(db_photo)
-        
         background_tasks.add_task(process_photo_faces, db_photo.id)
-        
+
     return db_photos
 
 @router.get("/event/{event_id}", response_model=List[schemas.PhotoResponse])

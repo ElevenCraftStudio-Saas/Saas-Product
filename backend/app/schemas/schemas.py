@@ -74,3 +74,26 @@ class SelfieMatchResponse(BaseModel):
 class DownloadResponse(BaseModel):
     url: str
     expires_in: int
+
+
+# Folder watch Schemas
+class FolderWatchCreate(BaseModel):
+    folder_path: str
+
+
+class FolderWatchResponse(BaseModel):
+    id: int
+    event_id: int
+    folder_path: str
+    enabled: bool
+    created_at: datetime
+    last_scan_at: Optional[datetime] = None
+    watching: bool = False
+    photo_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class RescanResponse(BaseModel):
+    uploaded: int

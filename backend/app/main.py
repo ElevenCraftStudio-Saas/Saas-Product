@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -14,6 +15,7 @@ from .database import get_db
 from .core.limiter import limiter
 from .routers import auth, events, photos, guest
 from .services.s3_service import s3_service
+from .services.folder_watcher import watcher_manager
 
 # Make application loggers (wedfind.*) visible — uvicorn only configures its own
 # loggers, so without this our S3/upload/audit logs are silently dropped.
@@ -26,7 +28,20 @@ logging.getLogger("wedfind").setLevel(logging.INFO)
 # NOTE: schema is now managed by Alembic migrations (`alembic upgrade head`),
 # not Base.metadata.create_all().
 
-app = FastAPI(title="WedFind AI API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Resume all enabled folder watches on startup (survives restart).
+    try:
+        watcher_manager.start_all()
+    except Exception:
+        logging.getLogger("wedfind").exception("Failed to start folder watchers")
+    yield
+    # Clean shutdown of observers.
+    watcher_manager.stop_all()
+
+
+app = FastAPI(title="WedFind AI API", lifespan=lifespan)
 
 # Rate limiting (per-IP) via SlowAPI.
 app.state.limiter = limiter
