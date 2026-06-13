@@ -133,3 +133,24 @@ class EraseResponse(BaseModel):
     consents_deleted: int
     downloads_deleted: int
     activity_deleted: int
+
+
+# API token (desktop agent) Schemas
+class ApiTokenCreate(BaseModel):
+    name: str = "agent"
+
+
+class ApiTokenInfo(BaseModel):
+    id: int
+    name: Optional[str] = None
+    token_prefix: Optional[str] = None
+    revoked: bool
+    created_at: datetime
+    last_used_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ApiTokenCreated(ApiTokenInfo):
+    token: str  # plaintext — shown exactly once

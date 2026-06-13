@@ -106,6 +106,22 @@ class ActivityLog(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class ApiToken(Base):
+    """Long-lived API key for the desktop ingest agent (non-Firebase auth)."""
+    __tablename__ = "api_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    name = Column(String)                 # human label (e.g. "Studio laptop")
+    token_prefix = Column(String, index=True)  # first chars, for display + lookup
+    token_hash = Column(String, unique=True)   # sha256 of the full token
+    revoked = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+    user = relationship("User")
+
+
 class FolderWatch(Base):
     __tablename__ = "folder_watches"
 

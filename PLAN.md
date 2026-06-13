@@ -51,12 +51,12 @@ README "Privacy & Compliance" section upgraded to a selling feature. Commit as b
 - Studio toggle per event. Opt-in consent reused.
 - Config: `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`.
 
-## Phase 3 — Desktop ingest agent (zero-touch moat)
-- Standalone Python tray app (PyInstaller) — studio installs once.
-- Watches a local folder, pushes new images to `POST /api/photos/upload/{event_id}` with a studio API token.
-- Survives restart, retries on failure, shows synced count.
-- Replaces cloud-side watchdog (which can't see studio's laptop).
-- New: per-studio API token auth (not just Firebase) for the agent.
+## Phase 3 — Desktop ingest agent (zero-touch moat) ✅ DONE
+- [x] Standalone Python agent (`agent/`), PyInstaller-buildable — studio installs once.
+- [x] Watches a local folder, pushes new images to `POST /api/photos/upload/{event_id}` with a studio API key.
+- [x] Survives restart (local state file), content-hash dedup, retry with backoff.
+- [x] Replaces cloud-side watchdog (which can't see studio's laptop).
+- [x] Per-studio API token auth: `ApiToken` model, sha256-hashed, create/list/revoke endpoints + dashboard UI; `X-API-Key` accepted alongside Firebase bearer.
 
 ## Phase 4 — Billing + branding (make it sellable)
 - Razorpay subscription (tiers by events/storage/photos).
@@ -68,9 +68,9 @@ README "Privacy & Compliance" section upgraded to a selling feature. Commit as b
 ## Sequencing & effort
 | Phase | What | Type | Effort |
 |------|------|------|:---:|
-| 1 | DPDP consent ledger + retention + erasure | moat | S |
+| 1 | DPDP consent ledger + retention + erasure ✅ | moat | S |
 | 2 | WhatsApp delivery | gap | M |
-| 3 | Desktop ingest agent | moat | L |
+| 3 | Desktop ingest agent ✅ | moat | L |
 | 4 | Razorpay billing + branding + analytics | gap | M |
 
 ## Open security (blocks launch — do alongside Phase 1)

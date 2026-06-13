@@ -12,6 +12,8 @@ Privacy-first, built for Indian wedding studios (DPDP-aware).
 
 - **Studio dashboard** — Firebase auth (Email/Google), event creation, QR generation, photo upload to S3
 - **Auto folder upload** — point an event at a local folder; new photos are detected (watchdog) and uploaded + processed automatically, surviving backend restarts
+- **Desktop ingest agent** — standalone app the studio installs on its editing machine; watches a local folder and pushes new photos via a studio **API key** (zero browser, zero manual upload). Works when the backend runs in the cloud and can't see the studio's disk. See [agent/](agent/)
+- **API keys** — studio-managed long-lived keys (`X-API-Key`) for the agent; create/revoke from the dashboard, sha256-hashed at rest, shown once
 - **AI face matching** — InsightFace `buffalo_l` 512-dim embeddings + cosine similarity (0.60), strictly event-scoped, single-face enforced
 - **pgvector vector search** — HNSW cosine index on a `vector(512)` column; dual-path matcher (Postgres `<=>` operator, with a pure-Python cosine fallback for SQLite / un-backfilled rows)
 - **Guest flow (no login)** — consent-gated, live selfie capture (`getUserMedia`), matched gallery, signed-URL downloads
@@ -73,8 +75,11 @@ frontend/
   app/(dashboard)/         # studio: dashboard, events (+folder watch)
   app/event/[slug]/        # guest: consent → selfie → gallery
   components/guest/        # selfie-capture, photo-gallery
-  components/dashboard/    # folder-watch
+  components/dashboard/    # folder-watch, privacy-panel
+  app/(dashboard)/settings # API key management
   lib/                     # api, firebase, auth-context, hooks
+agent/                     # desktop ingest agent (watchdog + API key push)
+  wedfind_agent.py  config.example.json  requirements.txt  README.md
 ```
 
 ---
@@ -134,8 +139,11 @@ Secrets live in untracked env files (templates: `.env.example`).
 | GET | `/healthz` | – | DB + S3 health |
 | GET | `/api/auth/me` | Firebase | Current user (auto-provisioned; first = studio) |
 | POST | `/api/auth/promote` | Studio | Grant/revoke studio role |
+| POST | `/api/auth/tokens` | Studio | Create desktop-agent API key (returned once) |
+| GET | `/api/auth/tokens` | Studio | List API keys |
+| DELETE | `/api/auth/tokens/{id}` | Studio | Revoke API key |
 | POST | `/api/events/` | Studio | Create event + QR |
-| POST | `/api/photos/upload/{event_id}` | Studio | Manual photo upload |
+| POST | `/api/photos/upload/{event_id}` | Studio (Firebase **or** API key) | Manual / agent photo upload |
 | POST | `/api/events/{id}/watch-folder` | Studio | Start auto folder upload |
 | GET | `/api/events/{id}/watch-folder` | Studio | Watch status + photo count |
 | DELETE | `/api/events/{id}/watch-folder` | Studio | Stop watching |
@@ -191,7 +199,7 @@ Runs against an isolated SQLite DB (`DATABASE_URL` set in `conftest.py` before i
 
 ## 🗺️ Roadmap
 
-WhatsApp delivery · desktop folder-watch agent · Celery + Redis async pipeline · S3 lifecycle retention (DPDP) · `ap-south-1` region · private RDS subnet · regional languages · multi-region.
+WhatsApp delivery · Celery + Redis async pipeline · Razorpay billing + studio branding · S3 lifecycle retention (DPDP) · `ap-south-1` region · private RDS subnet · regional languages · multi-region.
 
 ---
 
