@@ -13,11 +13,14 @@ Privacy-first, built for Indian wedding studios (DPDP-aware).
 - **Studio dashboard** — Firebase auth (Email/Google), event creation, QR generation, photo upload to S3
 - **Auto folder upload** — point an event at a local folder; new photos are detected (watchdog) and uploaded + processed automatically, surviving backend restarts
 - **AI face matching** — InsightFace `buffalo_l` 512-dim embeddings + cosine similarity (0.60), strictly event-scoped, single-face enforced
+- **pgvector vector search** — HNSW cosine index on a `vector(512)` column; dual-path matcher (Postgres `<=>` operator, with a pure-Python cosine fallback for SQLite / un-backfilled rows)
 - **Guest flow (no login)** — consent-gated, live selfie capture (`getUserMedia`), matched gallery, signed-URL downloads
+- **Bulk download** — guests can grab all matched photos as a single event-isolated ZIP (rate-limited, streamed)
 - **Role-based access** — first user bootstraps as `studio`; everyone else `guest`; studio-only admin promotion endpoint
 - **Privacy/compliance** — biometric consent (IP + version + timestamp) recorded before processing; selfies not stored permanently
 - **Audit logging** — `EVENT_VIEWED`, `SELFIE_UPLOADED`, `FACE_MATCH_COMPLETED`, `PHOTO_DOWNLOADED`, upload/watch events
-- **Hardening** — per-IP rate limiting (SlowAPI) on the public selfie endpoint, S3 cleanup on event delete, `/healthz`
+- **Hardening** — per-IP rate limiting (SlowAPI) on public endpoints (selfie 10/min, ZIP 5/min), S3 cleanup on event delete, `/healthz`
+- **Tested** — 17-test pytest suite (auth, events, ingest, guest match, ZIP) on a SQLite test DB with S3 + face-engine mocks
 
 ---
 
@@ -27,13 +30,14 @@ Privacy-first, built for Indian wedding studios (DPDP-aware).
 |-------|------|
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind v4, ShadCN UI, TanStack Query, Axios, React Hook Form, Zod |
 | Backend | FastAPI, Uvicorn, SQLAlchemy, Pydantic v2 |
-| Database | PostgreSQL (AWS RDS), Alembic migrations, psycopg v3 — SQLite fallback for local |
+| Database | PostgreSQL (AWS RDS) + pgvector (HNSW), Alembic migrations, psycopg v3 — SQLite fallback for local |
 | Auth | Firebase (Email/Google/Phone); backend verifies ID tokens via Google public certs (PyJWT + cryptography) |
 | Face AI | InsightFace `buffalo_l`, ONNXRuntime, OpenCV, NumPy |
 | Storage | AWS S3 (boto3), presigned URLs |
 | Folder watch | watchdog |
 | Rate limit | SlowAPI |
 | QR | qrcode + Pillow |
+| Tests | pytest, httpx, TestClient (SQLite + mocks) |
 
 ---
 
@@ -59,9 +63,11 @@ backend/
   app/
     core/                  # firebase token verify, limiter
     routers/               # auth, events (+watch endpoints), photos, guest
-    services/              # face_engine, face_processing, s3_service,
+    services/              # face_engine, face_processing, s3_service, matching,
                            #   activity, photo_ingest, folder_watcher
     models/ schemas/ utils/
+  tests/                   # pytest suite (conftest + auth/events/ingest/guest/zip)
+  pytest.ini
   test_db.py               # RDS connectivity check
 frontend/
   app/(dashboard)/         # studio: dashboard, events (+folder watch)
@@ -135,8 +141,9 @@ Secrets live in untracked env files (templates: `.env.example`).
 | DELETE | `/api/events/{id}/watch-folder` | Studio | Stop watching |
 | POST | `/api/events/{id}/rescan` | Studio | Manual folder rescan |
 | GET | `/api/guest/{slug}` | Public | Event details |
-| POST | `/api/guest/{slug}/selfie` | Consent (rate-limited) | Face match (event-scoped) |
+| POST | `/api/guest/{slug}/selfie` | Consent (10/min) | Face match (event-scoped, pgvector) |
 | GET | `/api/guest/{slug}/photos/{photo_id}/download` | Public | Signed download URL |
+| POST | `/api/guest/{slug}/download-zip` | Public (5/min) | Bulk ZIP of matched photos (event-isolated) |
 
 ---
 
@@ -147,6 +154,17 @@ Schema is managed by Alembic, not `create_all`.
 alembic upgrade head                                   # apply
 alembic revision --autogenerate -m "describe change"   # create after model edits
 ```
+The pgvector migration (`CREATE EXTENSION vector`, `embedding_vec` column, HNSW index) is Postgres-only and self-skips on SQLite.
+
+---
+
+## 🧪 Testing
+
+```bash
+cd backend
+../.venv/Scripts/pytest            # 17 tests
+```
+Runs against an isolated SQLite DB (`DATABASE_URL` set in `conftest.py` before import) with S3 and the face engine mocked — no AWS/RDS/model needed. Covers auth role gating, event CRUD, the ingest pipeline, guest selfie match, and bulk ZIP isolation.
 
 ---
 
@@ -163,7 +181,7 @@ alembic revision --autogenerate -m "describe change"   # create after model edit
 
 ## 🗺️ Roadmap
 
-WhatsApp delivery · desktop folder-watch agent · pgvector/FAISS vector search · Celery + Redis async pipeline · regional languages · multi-region.
+WhatsApp delivery · desktop folder-watch agent · Celery + Redis async pipeline · S3 lifecycle retention (DPDP) · `ap-south-1` region · private RDS subnet · regional languages · multi-region.
 
 ---
 
