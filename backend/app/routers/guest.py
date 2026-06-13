@@ -29,6 +29,9 @@ logger = logging.getLogger("wedfind.guest")
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "../uploads")
 MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", 0.6))
 CONSENT_VERSION = os.getenv("CONSENT_VERSION", "1.0")
+DEFAULT_CONSENT_TEXT = (
+    "I consent to face recognition processing for the purpose of finding my event photos."
+)
 MAX_SELFIE_BYTES = 10 * 1024 * 1024  # 10 MB
 ALLOWED_MIME = {"image/jpeg", "image/png"}
 DOWNLOAD_URL_TTL = 3600  # seconds
@@ -98,10 +101,14 @@ async def match_selfie(
     if len(contents) > MAX_SELFIE_BYTES:
         raise HTTPException(status_code=400, detail="Image exceeds the 10 MB limit.")
 
-    # Record consent (server-captured IP + version) before processing.
+    # Record consent (server-captured IP + version + exact text + UA) before processing.
     db.add(
         models.GuestConsent(
-            event_id=event.id, ip_address=ip, consent_version=CONSENT_VERSION
+            event_id=event.id,
+            ip_address=ip,
+            consent_version=CONSENT_VERSION,
+            consent_text=event.consent_text or DEFAULT_CONSENT_TEXT,
+            user_agent=(request.headers.get("user-agent") or "")[:512],
         )
     )
     db.commit()
@@ -232,4 +239,54 @@ def download_zip(
         buf,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{slug}-photos.zip"'},
+    )
+
+
+@router.post("/{slug}/erase", response_model=schemas.EraseResponse)
+@limiter.limit("5/minute")
+def erase_my_data(slug: str, request: Request, db: Session = Depends(get_db)):
+    """DPDP right-to-erasure: delete this caller's data for this event.
+
+    Guest data = consent records + download logs + activity logs keyed by the
+    caller's IP within this event. (Selfies/face embeddings are never stored.)
+    """
+    event = _get_event_or_404(slug, db)
+    ip = _client_ip(request)
+
+    consents_deleted = (
+        db.query(models.GuestConsent)
+        .filter(models.GuestConsent.event_id == event.id, models.GuestConsent.ip_address == ip)
+        .delete(synchronize_session=False)
+    )
+
+    # Downloads for this IP, scoped to photos in this event.
+    event_photo_ids = [
+        pid for (pid,) in db.query(models.Photo.id).filter(models.Photo.event_id == event.id).all()
+    ]
+    downloads_deleted = 0
+    if event_photo_ids:
+        downloads_deleted = (
+            db.query(models.Download)
+            .filter(
+                models.Download.ip_address == ip,
+                models.Download.photo_id.in_(event_photo_ids),
+            )
+            .delete(synchronize_session=False)
+        )
+
+    activity_deleted = (
+        db.query(models.ActivityLog)
+        .filter(models.ActivityLog.event_id == event.id, models.ActivityLog.ip_address == ip)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+
+    activity.log_activity(
+        db, activity.DATA_ERASED, event_id=event.id, ip_address=ip,
+        detail={"consents": consents_deleted, "downloads": downloads_deleted, "activity": activity_deleted},
+    )
+    return schemas.EraseResponse(
+        consents_deleted=consents_deleted,
+        downloads_deleted=downloads_deleted,
+        activity_deleted=activity_deleted,
     )

@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,11 +12,12 @@ import logging
 
 from fastapi.staticfiles import StaticFiles
 
-from .database import get_db
+from .database import get_db, SessionLocal
 from .core.limiter import limiter
 from .routers import auth, events, photos, guest
 from .services.s3_service import s3_service
 from .services.folder_watcher import watcher_manager
+from .services import retention
 
 # Make application loggers (wedfind.*) visible — uvicorn only configures its own
 # loggers, so without this our S3/upload/audit logs are silently dropped.
@@ -29,6 +31,22 @@ logging.getLogger("wedfind").setLevel(logging.INFO)
 # not Base.metadata.create_all().
 
 
+async def _retention_loop():
+    """Run the DPDP retention sweep on startup, then every 24h."""
+    log = logging.getLogger("wedfind")
+    while True:
+        db = SessionLocal()
+        try:
+            result = await asyncio.to_thread(retention.purge_expired, db)
+            if result["photos"]:
+                log.info("retention sweep purged %s", result)
+        except Exception:
+            log.exception("retention sweep failed")
+        finally:
+            db.close()
+        await asyncio.sleep(retention.SWEEP_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Resume all enabled folder watches on startup (survives restart).
@@ -36,8 +54,11 @@ async def lifespan(app: FastAPI):
         watcher_manager.start_all()
     except Exception:
         logging.getLogger("wedfind").exception("Failed to start folder watchers")
+    # Background DPDP retention sweeper.
+    sweeper = asyncio.create_task(_retention_loop())
     yield
-    # Clean shutdown of observers.
+    # Clean shutdown.
+    sweeper.cancel()
     watcher_manager.stop_all()
 
 

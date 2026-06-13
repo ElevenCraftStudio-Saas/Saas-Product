@@ -58,6 +58,18 @@ export async function fetchDownloadUrl(slug: string, photoId: number): Promise<s
   return absoluteUrl(res.data.url);
 }
 
+export interface EraseResult {
+  consents_deleted: number;
+  downloads_deleted: number;
+  activity_deleted: number;
+}
+
+/** DPDP right-to-erasure: delete this guest's data for the event. */
+export async function eraseMyData(slug: string): Promise<EraseResult> {
+  const res = await api.post(`/guest/${slug}/erase`);
+  return res.data;
+}
+
 export async function downloadZip(slug: string, photoIds: number[]): Promise<void> {
   const res = await api.post(
     `/guest/${slug}/download-zip`,

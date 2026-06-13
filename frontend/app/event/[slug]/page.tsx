@@ -13,6 +13,7 @@ import {
   useSelfieMatch,
   fetchDownloadUrl,
   downloadZip,
+  eraseMyData,
   type GuestPhoto,
 } from '@/lib/hooks/guest';
 
@@ -66,6 +67,18 @@ export default function GuestEventPage() {
       toast.error('ZIP download failed.');
     } finally {
       setZipping(false);
+    }
+  }
+
+  async function handleErase() {
+    if (!confirm('Delete all your data for this event (consent + activity)? This cannot be undone.')) return;
+    try {
+      const res = await eraseMyData(slug);
+      setPhotos(null);
+      setConsented(false);
+      toast.success(`Your data was deleted (${res.consents_deleted} consent record(s)).`);
+    } catch {
+      toast.error('Could not delete your data. Try again.');
     }
   }
 
@@ -170,7 +183,15 @@ export default function GuestEventPage() {
         )}
       </div>
 
-      <footer className="mt-20 text-slate-400 text-sm">Powered by WedFind AI</footer>
+      <footer className="mt-20 flex flex-col items-center gap-2 text-slate-400 text-sm">
+        <span>Powered by WedFind AI</span>
+        <button
+          onClick={handleErase}
+          className="text-xs underline hover:text-red-500 transition-colors"
+        >
+          Delete my data
+        </button>
+      </footer>
     </div>
   );
 }

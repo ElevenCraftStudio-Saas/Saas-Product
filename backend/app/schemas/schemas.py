@@ -101,3 +101,35 @@ class RescanResponse(BaseModel):
 
 class PhotoIdsRequest(BaseModel):
     photo_ids: List[int]
+
+
+# Privacy / DPDP Schemas
+class ConsentRecord(BaseModel):
+    id: int
+    ip_address: Optional[str] = None
+    consent_version: Optional[str] = None
+    consent_text: Optional[str] = None
+    user_agent: Optional[str] = None
+    consent_timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RetentionUpdate(BaseModel):
+    # null/None = keep forever; else purge N days after event_date.
+    retention_days: Optional[int] = None
+
+
+class PrivacySummary(BaseModel):
+    event_id: int
+    consent_count: int
+    photos_count: int
+    retention_days: Optional[int] = None
+    scheduled_purge_at: Optional[datetime] = None
+
+
+class EraseResponse(BaseModel):
+    consents_deleted: int
+    downloads_deleted: int
+    activity_deleted: int

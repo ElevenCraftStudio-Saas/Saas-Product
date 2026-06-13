@@ -13,7 +13,10 @@ import logging
 
 from ..services.s3_service import s3_service
 from ..services.folder_watcher import watcher_manager
-from io import BytesIO
+from ..services import retention
+from fastapi.responses import StreamingResponse
+from io import BytesIO, StringIO
+import csv
 
 logger = logging.getLogger("wedfind.events")
 
@@ -256,3 +259,138 @@ def rescan_folder(
         raise HTTPException(status_code=400, detail=f"Folder no longer exists: {watch.folder_path}")
     uploaded = watcher_manager.scan(watch.id, event_id, watch.folder_path)
     return schemas.RescanResponse(uploaded=uploaded)
+
+
+# ---------------------- Privacy / DPDP ----------------------
+
+def _privacy_summary(event: models.Event, db: Session) -> schemas.PrivacySummary:
+    consent_count = db.query(models.GuestConsent.id).filter(
+        models.GuestConsent.event_id == event.id
+    ).count()
+    photos_count = db.query(models.Photo.id).filter(
+        models.Photo.event_id == event.id
+    ).count()
+    return schemas.PrivacySummary(
+        event_id=event.id,
+        consent_count=consent_count,
+        photos_count=photos_count,
+        retention_days=event.retention_days,
+        scheduled_purge_at=retention.scheduled_purge_at(event),
+    )
+
+
+@router.get("/{event_id}/privacy", response_model=schemas.PrivacySummary)
+def get_privacy(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_studio),
+):
+    event = _owned_event_or_404(event_id, current_user, db)
+    return _privacy_summary(event, db)
+
+
+@router.patch("/{event_id}/retention", response_model=schemas.PrivacySummary)
+def set_retention(
+    event_id: int,
+    body: schemas.RetentionUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_studio),
+):
+    event = _owned_event_or_404(event_id, current_user, db)
+    if body.retention_days is not None and body.retention_days < 1:
+        raise HTTPException(status_code=400, detail="retention_days must be >= 1 or null")
+    event.retention_days = body.retention_days
+    db.commit()
+    db.refresh(event)
+    logger.info("RETENTION_SET event=%s days=%s by=%s", event_id, body.retention_days, current_user.id)
+    return _privacy_summary(event, db)
+
+
+@router.get("/{event_id}/consents", response_model=List[schemas.ConsentRecord])
+def list_consents(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_studio),
+):
+    _owned_event_or_404(event_id, current_user, db)
+    return (
+        db.query(models.GuestConsent)
+        .filter(models.GuestConsent.event_id == event_id)
+        .order_by(models.GuestConsent.consent_timestamp.desc())
+        .all()
+    )
+
+
+@router.get("/{event_id}/consents/export")
+def export_consents(
+    event_id: int,
+    format: str = "csv",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_studio),
+):
+    """Download proof-of-consent ledger (CSV or PDF) for compliance/audit."""
+    event = _owned_event_or_404(event_id, current_user, db)
+    rows = (
+        db.query(models.GuestConsent)
+        .filter(models.GuestConsent.event_id == event_id)
+        .order_by(models.GuestConsent.consent_timestamp.asc())
+        .all()
+    )
+    fmt = (format or "csv").lower()
+
+    if fmt == "csv":
+        sio = StringIO()
+        w = csv.writer(sio)
+        w.writerow(["id", "timestamp", "ip_address", "consent_version", "consent_text", "user_agent"])
+        for r in rows:
+            w.writerow([
+                r.id, r.consent_timestamp, r.ip_address or "",
+                r.consent_version or "", r.consent_text or "", r.user_agent or "",
+            ])
+        data = sio.getvalue().encode("utf-8")
+        return StreamingResponse(
+            BytesIO(data), media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="consents-event-{event_id}.csv"'},
+        )
+
+    if fmt == "pdf":
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.pdfgen import canvas
+        except ImportError:
+            raise HTTPException(status_code=501, detail="PDF export unavailable (reportlab not installed).")
+        buf = BytesIO()
+        c = canvas.Canvas(buf, pagesize=A4)
+        width, height = A4
+        y = height - 50
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(50, y, f"Consent Ledger — {event.title}")
+        y -= 20
+        c.setFont("Helvetica", 8)
+        c.drawString(50, y, f"Event #{event_id} · {len(rows)} consent record(s) · DPDP proof-of-consent")
+        y -= 25
+        c.setFont("Helvetica-Bold", 8)
+        c.drawString(50, y, "Timestamp")
+        c.drawString(210, y, "IP")
+        c.drawString(310, y, "Version")
+        c.drawString(370, y, "Consent text")
+        y -= 14
+        c.setFont("Helvetica", 7)
+        for r in rows:
+            if y < 50:
+                c.showPage()
+                y = height - 50
+                c.setFont("Helvetica", 7)
+            c.drawString(50, y, str(r.consent_timestamp)[:19])
+            c.drawString(210, y, (r.ip_address or "")[:18])
+            c.drawString(310, y, (r.consent_version or "")[:8])
+            c.drawString(370, y, (r.consent_text or "")[:28])
+            y -= 12
+        c.save()
+        buf.seek(0)
+        return StreamingResponse(
+            buf, media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="consents-event-{event_id}.pdf"'},
+        )
+
+    raise HTTPException(status_code=400, detail="format must be 'csv' or 'pdf'")

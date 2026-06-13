@@ -12,6 +12,7 @@ import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { Progress } from '@/components/ui/progress';
 import { FolderWatch } from '@/components/dashboard/folder-watch';
+import { PrivacyPanel } from '@/components/dashboard/privacy-panel';
 
 export default function EventDetailsPage() {
   const { id } = useParams();
@@ -177,6 +178,9 @@ export default function EventDetailsPage() {
 
         {/* Auto folder upload (watchdog) */}
         <FolderWatch eventId={id as string} />
+
+        {/* Privacy & DPDP compliance */}
+        <PrivacyPanel eventId={id as string} />
       </div>
     </div>
   );

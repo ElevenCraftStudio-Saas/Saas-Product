@@ -15,6 +15,8 @@ EVENT_VIEWED = "EVENT_VIEWED"
 SELFIE_UPLOADED = "SELFIE_UPLOADED"
 FACE_MATCH_COMPLETED = "FACE_MATCH_COMPLETED"
 PHOTO_DOWNLOADED = "PHOTO_DOWNLOADED"
+DATA_ERASED = "DATA_ERASED"          # guest exercised right-to-erasure
+RETENTION_PURGE = "RETENTION_PURGE"  # auto-purge of expired event photos/faces
 
 
 def log_activity(

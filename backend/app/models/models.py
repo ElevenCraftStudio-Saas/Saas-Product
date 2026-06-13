@@ -35,6 +35,9 @@ class Event(Base):
     qr_code_path = Column(String)
     storage_provider = Column(String, default="local")  # "local" or "s3"
     storage_key = Column(String, nullable=True)
+    # DPDP: null = keep forever; else auto-purge photos+faces N days after event_date.
+    retention_days = Column(Integer, nullable=True)
+    consent_text = Column(String, nullable=True)  # custom consent wording for this event
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     photographer_id = Column(Integer, ForeignKey("users.id"))
 
@@ -86,6 +89,8 @@ class GuestConsent(Base):
     event_id = Column(Integer, ForeignKey("events.id"), index=True)
     ip_address = Column(String, nullable=True)
     consent_version = Column(String, default="1.0")
+    consent_text = Column(String, nullable=True)   # exact wording the guest agreed to (proof)
+    user_agent = Column(String, nullable=True)     # extra evidence
     consent_timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
 

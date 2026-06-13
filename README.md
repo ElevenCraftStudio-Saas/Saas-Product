@@ -144,6 +144,11 @@ Secrets live in untracked env files (templates: `.env.example`).
 | POST | `/api/guest/{slug}/selfie` | Consent (10/min) | Face match (event-scoped, pgvector) |
 | GET | `/api/guest/{slug}/photos/{photo_id}/download` | Public | Signed download URL |
 | POST | `/api/guest/{slug}/download-zip` | Public (5/min) | Bulk ZIP of matched photos (event-isolated) |
+| POST | `/api/guest/{slug}/erase` | Public (5/min) | DPDP right-to-erasure (delete caller's data) |
+| GET | `/api/events/{id}/privacy` | Studio | Consent count, retention, scheduled purge date |
+| PATCH | `/api/events/{id}/retention` | Studio | Set/clear auto-delete window (days) |
+| GET | `/api/events/{id}/consents` | Studio | Consent ledger |
+| GET | `/api/events/{id}/consents/export?format=csv\|pdf` | Studio | Proof-of-consent export |
 
 ---
 
@@ -172,7 +177,12 @@ Runs against an isolated SQLite DB (`DATABASE_URL` set in `conftest.py` before i
 
 - No secrets in git — credentials gitignored; use `.env.example`.
 - First-user-becomes-studio bootstrap; least-privilege `guest` default.
-- Biometric consent recorded before any face processing (DPDP).
+- **DPDP compliance suite:**
+  - Biometric consent (text + version + IP + user-agent + timestamp) recorded before any face processing.
+  - **Consent ledger + CSV/PDF export** — audit-ready proof per event.
+  - **Configurable retention** — photos + face embeddings auto-purged N days after the event (daily background sweeper); consent records retained as legal proof.
+  - **Right-to-erasure** — guest deletes their own data (consent + downloads + activity) in one click.
+  - Selfies never persisted (matched in memory, temp file deleted).
 - Event isolation — matching/downloads constrained to one event.
 - Folder paths validated (absolute, exists, no traversal).
 - **Production:** rotate AWS/RDS credentials regularly; restrict RDS security group; consider a desktop agent for folder watching when the backend runs in the cloud (watchdog only sees the backend host's filesystem); prefer an S3 region near your users (e.g. `ap-south-1`).
