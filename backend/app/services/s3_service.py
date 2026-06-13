@@ -53,6 +53,13 @@ class S3Service:
             print(f"S3 Delete Error: {e}")
             return False
 
+    def get_bytes(self, object_name: str):
+        try:
+            return self.s3_client.get_object(Bucket=self.bucket_name, Key=object_name)["Body"].read()
+        except ClientError as e:
+            logger.exception("S3 get_bytes failed key=%s err=%s", object_name, e)
+            return None
+
     def generate_presigned_url(self, object_name: str, expiration: int = 3600):
         try:
             url = self.s3_client.generate_presigned_url(

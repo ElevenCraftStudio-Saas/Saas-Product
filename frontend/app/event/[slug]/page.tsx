@@ -5,13 +5,14 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Camera, Loader2, Sparkles, Image as ImageIcon, ShieldCheck } from 'lucide-react';
+import { Camera, Loader2, Sparkles, Image as ImageIcon, ShieldCheck, Download } from 'lucide-react';
 import { SelfieCapture } from '@/components/guest/selfie-capture';
 import { PhotoGallery } from '@/components/guest/photo-gallery';
 import {
   useGuestEvent,
   useSelfieMatch,
   fetchDownloadUrl,
+  downloadZip,
   type GuestPhoto,
 } from '@/lib/hooks/guest';
 
@@ -41,6 +42,8 @@ export default function GuestEventPage() {
     }
   }
 
+  const [zipping, setZipping] = useState(false);
+
   async function handleDownload(photoId: number) {
     try {
       setDownloadingId(photoId);
@@ -50,6 +53,19 @@ export default function GuestEventPage() {
       toast.error('Could not start download.');
     } finally {
       setDownloadingId(null);
+    }
+  }
+
+  async function handleDownloadAll() {
+    if (!photos?.length) return;
+    try {
+      setZipping(true);
+      await downloadZip(slug, photos.map((p) => p.id));
+      toast.success('Downloading ZIP…');
+    } catch {
+      toast.error('ZIP download failed.');
+    } finally {
+      setZipping(false);
     }
   }
 
@@ -135,9 +151,15 @@ export default function GuestEventPage() {
           <div className="space-y-6">
             <div className="flex items-center justify-between border-b pb-4">
               <h2 className="text-2xl font-bold">Your Gallery ({photos!.length})</h2>
-              <Button variant="outline" size="sm" onClick={() => setPhotos(null)}>
-                New Search
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleDownloadAll} disabled={zipping}>
+                  {zipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  <span className="ml-1">Download All</span>
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setPhotos(null)}>
+                  New Search
+                </Button>
+              </div>
             </div>
             <PhotoGallery
               photos={photos!}

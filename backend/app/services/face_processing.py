@@ -30,18 +30,29 @@ def process_photo_faces(photo_id: int):
             image_path = temp_path
 
         faces = face_engine.get_faces(image_path)
-        
+        is_pg = db.bind.dialect.name == "postgresql"
+
         for face in faces:
             embedding_list = face.embedding.tolist()
             bbox_list = face.bbox.tolist()
-            
+
             db_face = models.FaceEmbedding(
                 photo_id=photo_id,
                 embedding=embedding_list,
                 face_box=bbox_list
             )
             db.add(db_face)
-        
+            db.flush()  # assign db_face.id
+
+            # Populate the pgvector column (PostgreSQL only).
+            if is_pg:
+                from sqlalchemy import text
+                vec = "[" + ",".join(f"{float(x):.8f}" for x in embedding_list) + "]"
+                db.execute(
+                    text("UPDATE face_embeddings SET embedding_vec = CAST(:v AS vector) WHERE id = :id"),
+                    {"v": vec, "id": db_face.id},
+                )
+
         photo.processing_status = models.ProcessingStatus.COMPLETED
         db.commit()
     except Exception as e:

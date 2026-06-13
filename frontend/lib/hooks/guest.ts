@@ -57,3 +57,19 @@ export async function fetchDownloadUrl(slug: string, photoId: number): Promise<s
   const res = await api.get(`/guest/${slug}/photos/${photoId}/download`);
   return absoluteUrl(res.data.url);
 }
+
+export async function downloadZip(slug: string, photoIds: number[]): Promise<void> {
+  const res = await api.post(
+    `/guest/${slug}/download-zip`,
+    { photo_ids: photoIds },
+    { responseType: 'blob' }
+  );
+  const url = URL.createObjectURL(res.data as Blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${slug}-photos.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

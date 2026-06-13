@@ -5,17 +5,20 @@ POST /api/guest/{slug}/selfie                      -> consent + face match (even
 GET  /api/guest/{slug}/photos/{photo_id}/download  -> signed url (event-isolated)
 """
 import os
+import io
 import uuid
+import zipfile
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import models
 from ..schemas import schemas
 from ..services.face_engine import face_engine
-from ..services.face_processing import get_similarity
+from ..services.matching import match_event
 from ..services.s3_service import s3_service
 from ..services import activity
 from ..core.limiter import limiter
@@ -129,21 +132,8 @@ async def match_selfie(
 
         guest_embedding = faces[0].embedding
 
-        # 5. Match — STRICTLY within this event only.
-        event_photo_ids = [
-            p.id for p in db.query(models.Photo.id).filter(models.Photo.event_id == event.id).all()
-        ]
-        matched_ids = set()
-        if event_photo_ids:
-            embeddings = (
-                db.query(models.FaceEmbedding)
-                .filter(models.FaceEmbedding.photo_id.in_(event_photo_ids))
-                .all()
-            )
-            for db_face in embeddings:
-                if get_similarity(guest_embedding, db_face.embedding) >= MATCH_THRESHOLD:
-                    matched_ids.add(db_face.photo_id)
-
+        # 5. Match — STRICTLY within this event only (pgvector on PG, else Python).
+        matched_ids = match_event(db, event.id, guest_embedding, MATCH_THRESHOLD)
         matched_photos = (
             db.query(models.Photo).filter(models.Photo.id.in_(matched_ids)).all()
             if matched_ids else []
@@ -191,3 +181,55 @@ def download_photo(slug: str, photo_id: int, request: Request, db: Session = Dep
     )
 
     return schemas.DownloadResponse(url=url, expires_in=DOWNLOAD_URL_TTL)
+
+
+@router.post("/{slug}/download-zip")
+@limiter.limit("5/minute")
+def download_zip(
+    slug: str,
+    request: Request,
+    body: schemas.PhotoIdsRequest,
+    db: Session = Depends(get_db),
+):
+    """Stream a ZIP of the requested photos (event-isolated)."""
+    event = _get_event_or_404(slug, db)
+    if not body.photo_ids:
+        raise HTTPException(status_code=400, detail="No photos selected.")
+
+    # Only photos that belong to THIS event are included (isolation).
+    photos = (
+        db.query(models.Photo)
+        .filter(models.Photo.id.in_(body.photo_ids), models.Photo.event_id == event.id)
+        .all()
+    )
+    if not photos:
+        raise HTTPException(status_code=404, detail="No matching photos in this event.")
+
+    ip = _client_ip(request)
+    buf = io.BytesIO()
+    added = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for i, photo in enumerate(photos, start=1):
+            data = s3_service.get_bytes(photo.storage_key) if photo.storage_key else None
+            if not data:
+                logger.warning("ZIP skip missing key photo_id=%s", photo.id)
+                continue
+            # Prefix index to avoid duplicate filename collisions in the zip.
+            zf.writestr(f"{i:03d}_{photo.filename}", data)
+            db.add(models.Download(photo_id=photo.id, ip_address=ip))
+            added += 1
+    db.commit()
+
+    if added == 0:
+        raise HTTPException(status_code=502, detail="Could not retrieve any photos from storage.")
+
+    activity.log_activity(
+        db, activity.PHOTO_DOWNLOADED, event_id=event.id, ip_address=ip,
+        detail={"zip": True, "count": added},
+    )
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{slug}-photos.zip"'},
+    )

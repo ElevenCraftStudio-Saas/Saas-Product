@@ -97,3 +97,7 @@ class FolderWatchResponse(BaseModel):
 
 class RescanResponse(BaseModel):
     uploaded: int
+
+
+class PhotoIdsRequest(BaseModel):
+    photo_ids: List[int]
