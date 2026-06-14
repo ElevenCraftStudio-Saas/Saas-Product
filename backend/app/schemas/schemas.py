@@ -154,3 +154,41 @@ class ApiTokenInfo(BaseModel):
 
 class ApiTokenCreated(ApiTokenInfo):
     token: str  # plaintext — shown exactly once
+
+
+# Admin Schemas
+class RoleUpdate(BaseModel):
+    role: str  # "studio" or "guest"
+
+
+class ActivityRecord(BaseModel):
+    id: int
+    action: str
+    event_id: Optional[int] = None
+    photo_id: Optional[int] = None
+    ip_address: Optional[str] = None
+    detail: Optional[dict] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class EventAnalytics(BaseModel):
+    event_id: int
+    title: Optional[str] = None
+    photos: int
+    consents: int
+    scans: int
+    matches: int
+    downloads: int
+
+
+class AnalyticsSummary(BaseModel):
+    total_events: int
+    total_photos: int
+    total_consents: int
+    total_scans: int
+    total_matches: int
+    total_downloads: int
+    per_event: List[EventAnalytics]

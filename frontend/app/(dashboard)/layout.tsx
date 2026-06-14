@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import Link from 'next/link';
-import { Camera, LayoutDashboard, Calendar, LogOut, Menu, KeyRound } from 'lucide-react';
+import { Camera, LayoutDashboard, Calendar, LogOut, Menu, KeyRound, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
 
@@ -51,6 +51,12 @@ export default function DashboardLayout({
             <Button variant="ghost" className="w-full justify-start space-x-2">
               <Calendar className="w-5 h-5" />
               <span>Events</span>
+            </Button>
+          </Link>
+          <Link href="/admin">
+            <Button variant="ghost" className="w-full justify-start space-x-2">
+              <ShieldCheck className="w-5 h-5" />
+              <span>Admin</span>
             </Button>
           </Link>
           <Link href="/settings">

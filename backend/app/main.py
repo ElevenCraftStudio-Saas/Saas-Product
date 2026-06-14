@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .database import get_db, SessionLocal
 from .core.limiter import limiter
-from .routers import auth, events, photos, guest
+from .routers import auth, events, photos, guest, admin
 from .services.s3_service import s3_service
 from .services.folder_watcher import watcher_manager
 from .services import retention
@@ -86,6 +86,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(events.router, prefix="/api/events", tags=["Events"])
 app.include_router(photos.router, prefix="/api/photos", tags=["Photos"])
 app.include_router(guest.router, prefix="/api/guest", tags=["Guest"])
+app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 
 
 @app.get("/")

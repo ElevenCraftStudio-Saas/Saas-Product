@@ -22,7 +22,8 @@ Privacy-first, built for Indian wedding studios (DPDP-aware).
 - **Privacy/compliance** — biometric consent (IP + version + timestamp) recorded before processing; selfies not stored permanently
 - **Audit logging** — `EVENT_VIEWED`, `SELFIE_UPLOADED`, `FACE_MATCH_COMPLETED`, `PHOTO_DOWNLOADED`, upload/watch events
 - **Hardening** — per-IP rate limiting (SlowAPI) on public endpoints (selfie 10/min, ZIP 5/min), S3 cleanup on event delete, `/healthz`
-- **Tested** — 17-test pytest suite (auth, events, ingest, guest match, ZIP) on a SQLite test DB with S3 + face-engine mocks
+- **Admin panel** — studio dashboard with analytics (scans/matches/downloads per event), user management (promote/demote), and an audit-log viewer
+- **Tested** — 35-test pytest suite (auth, events, ingest, guest match, ZIP, privacy, tokens, admin) on a SQLite test DB with S3 + face-engine mocks
 
 ---
 
@@ -142,6 +143,10 @@ Secrets live in untracked env files (templates: `.env.example`).
 | POST | `/api/auth/tokens` | Studio | Create desktop-agent API key (returned once) |
 | GET | `/api/auth/tokens` | Studio | List API keys |
 | DELETE | `/api/auth/tokens/{id}` | Studio | Revoke API key |
+| GET | `/api/admin/users` | Studio | List users |
+| PATCH | `/api/admin/users/{id}/role` | Studio | Promote/demote user |
+| GET | `/api/admin/activity` | Studio | Audit log (own events) |
+| GET | `/api/admin/analytics` | Studio | Scans/matches/downloads per event |
 | POST | `/api/events/` | Studio | Create event + QR |
 | POST | `/api/photos/upload/{event_id}` | Studio (Firebase **or** API key) | Manual / agent photo upload |
 | POST | `/api/events/{id}/watch-folder` | Studio | Start auto folder upload |
@@ -175,7 +180,7 @@ The pgvector migration (`CREATE EXTENSION vector`, `embedding_vec` column, HNSW 
 
 ```bash
 cd backend
-../.venv/Scripts/pytest            # 17 tests
+../.venv/Scripts/pytest            # 35 tests
 ```
 Runs against an isolated SQLite DB (`DATABASE_URL` set in `conftest.py` before import) with S3 and the face engine mocked — no AWS/RDS/model needed. Covers auth role gating, event CRUD, the ingest pipeline, guest selfie match, and bulk ZIP isolation.
 
