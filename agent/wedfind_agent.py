@@ -45,7 +45,7 @@ def load_config() -> dict:
     p.add_argument("--api-url")
     p.add_argument("--api-key")
     p.add_argument("--event-id", type=int)
-    p.add_argument("--folder")
+    p.add_argument("--folder", action="append", help="watch folder (repeatable)")
     p.add_argument("--poll-seconds", type=int, default=10)
     a = p.parse_args()
 
@@ -61,22 +61,32 @@ def load_config() -> dict:
     if a.event_id is not None:
         cfg["event_id"] = a.event_id
     if a.folder:
-        cfg["folder"] = a.folder
+        cfg["folders"] = a.folder  # list from repeated --folder
     cfg.setdefault("poll_seconds", a.poll_seconds)
 
-    missing = [k for k in ("api_url", "api_key", "event_id", "folder") if not cfg.get(k)]
+    # Normalize to a list: accept "folders" (list) or legacy "folder" (str).
+    folders = cfg.get("folders")
+    if not folders and cfg.get("folder"):
+        folders = [cfg["folder"]]
+    cfg["folders"] = folders or []
+
+    missing = [k for k in ("api_url", "api_key", "event_id") if not cfg.get(k)]
     if missing:
         log.error("Missing config: %s", ", ".join(missing))
         sys.exit(1)
-    cfg["api_url"] = cfg["api_url"].rstrip("/")
-    if not os.path.isdir(cfg["folder"]):
-        log.error("Folder does not exist: %s", cfg["folder"])
+    if not cfg["folders"]:
+        log.error("No folders configured (set 'folders': [...] or 'folder')")
         sys.exit(1)
+    cfg["api_url"] = cfg["api_url"].rstrip("/")
+    for folder in cfg["folders"]:
+        if not os.path.isdir(folder):
+            log.error("Folder does not exist: %s", folder)
+            sys.exit(1)
     return cfg
 
 
 def _state_path(cfg: dict) -> str:
-    key = f"{cfg['api_url']}|{cfg['event_id']}|{cfg['folder']}"
+    key = f"{cfg['api_url']}|{cfg['event_id']}|{','.join(sorted(cfg['folders']))}"
     h = hashlib.sha256(key.encode()).hexdigest()[:12]
     base = os.path.join(os.path.expanduser("~"), ".wedfind_agent")
     os.makedirs(base, exist_ok=True)
@@ -221,19 +231,21 @@ class Handler(FileSystemEventHandler):
 
 
 def initial_scan(cfg: dict, up: Uploader):
-    folder = cfg["folder"]
-    for root, _dirs, files in os.walk(folder):
-        for name in files:
-            p = os.path.join(root, name)
-            if is_image(p):
-                up.enqueue(p)
+    for folder in cfg["folders"]:
+        for root, _dirs, files in os.walk(folder):
+            for name in files:
+                p = os.path.join(root, name)
+                if is_image(p):
+                    up.enqueue(p)
 
 
 def main():
     cfg = load_config()
     synced = load_state(cfg)
-    log.info("WedFind agent starting — folder=%s event=%s (%d already synced)",
-             cfg["folder"], cfg["event_id"], len(synced))
+    log.info("WedFind agent starting — event=%s, %d folder(s) (%d already synced)",
+             cfg["event_id"], len(cfg["folders"]), len(synced))
+    for f in cfg["folders"]:
+        log.info("  watching: %s", f)
 
     up = Uploader(cfg, synced)
     t = threading.Thread(target=up.worker, daemon=True)
@@ -242,7 +254,8 @@ def main():
     initial_scan(cfg, up)
 
     observer = Observer()
-    observer.schedule(Handler(up), cfg["folder"], recursive=True)
+    for folder in cfg["folders"]:
+        observer.schedule(Handler(up), folder, recursive=True)
     observer.start()
     log.info("Watching for new photos. Ctrl+C to stop.")
     try:

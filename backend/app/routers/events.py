@@ -163,9 +163,9 @@ def delete_event(
         if photo.storage_provider == "s3" and photo.storage_key:
             s3_keys.append(photo.storage_key)
 
-    # Stop + remove any folder watch (no FK cascade → must delete explicitly).
-    watch = db.query(models.FolderWatch).filter(models.FolderWatch.event_id == event_id).first()
-    if watch:
+    # Stop + remove ALL folder watches (no FK cascade → must delete explicitly).
+    watches = db.query(models.FolderWatch).filter(models.FolderWatch.event_id == event_id).all()
+    for watch in watches:
         watcher_manager.stop(watch.id)
         db.delete(watch)
 
@@ -182,83 +182,111 @@ def delete_event(
     return None
 
 
-# ---------------------- Folder watch (auto-upload) ----------------------
+# ---------------------- Folder watch (auto-upload, multiple folders) ----------------------
+# An event can watch MANY folders (e.g. one per photographer/cameraman). Each
+# FolderWatch row is one folder; the watcher_manager keys observers by watch id.
 
-@router.post("/{event_id}/watch-folder", response_model=schemas.FolderWatchResponse)
-def set_watch_folder(
+def _owned_watch_or_404(event_id: int, watch_id: int, user: models.User, db: Session) -> models.FolderWatch:
+    _owned_event_or_404(event_id, user, db)
+    watch = db.query(models.FolderWatch).filter(
+        models.FolderWatch.id == watch_id,
+        models.FolderWatch.event_id == event_id,
+    ).first()
+    if not watch:
+        raise HTTPException(status_code=404, detail="Folder watch not found")
+    return watch
+
+
+@router.post("/{event_id}/watch-folders", response_model=schemas.FolderWatchResponse)
+def add_watch_folder(
     event_id: int,
     body: schemas.FolderWatchCreate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_studio),
 ):
-    """Select/replace the watched folder for an event and start watching."""
+    """Add a folder to watch for this event and start watching it."""
     _owned_event_or_404(event_id, current_user, db)
     folder = _validate_folder_path(body.folder_path)
 
-    watch = db.query(models.FolderWatch).filter(models.FolderWatch.event_id == event_id).first()
-    if watch:
-        # Folder changed → restart observer.
-        watcher_manager.stop(watch.id)
-        watch.folder_path = folder
-        watch.enabled = True
-    else:
-        watch = models.FolderWatch(event_id=event_id, folder_path=folder, enabled=True)
-        db.add(watch)
+    existing = db.query(models.FolderWatch).filter(
+        models.FolderWatch.event_id == event_id,
+        models.FolderWatch.folder_path == folder,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="This folder is already being watched for this event")
+
+    watch = models.FolderWatch(event_id=event_id, folder_path=folder, enabled=True)
+    db.add(watch)
     db.commit()
     db.refresh(watch)
 
     watcher_manager.start(watch)
     db.refresh(watch)
-    logger.info("WATCH_FOLDER_SET event=%s folder=%s by=%s", event_id, folder, current_user.id)
+    logger.info("WATCH_FOLDER_ADD event=%s folder=%s by=%s", event_id, folder, current_user.id)
     return _watch_response(watch, db)
 
 
-@router.get("/{event_id}/watch-folder", response_model=schemas.FolderWatchResponse)
-def get_watch_folder(
+@router.get("/{event_id}/watch-folders", response_model=List[schemas.FolderWatchResponse])
+def list_watch_folders(
     event_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_studio),
 ):
     _owned_event_or_404(event_id, current_user, db)
-    watch = db.query(models.FolderWatch).filter(models.FolderWatch.event_id == event_id).first()
-    if not watch:
-        raise HTTPException(status_code=404, detail="No folder is being watched for this event")
-    return _watch_response(watch, db)
+    watches = (
+        db.query(models.FolderWatch)
+        .filter(models.FolderWatch.event_id == event_id)
+        .order_by(models.FolderWatch.created_at.asc())
+        .all()
+    )
+    return [_watch_response(w, db) for w in watches]
 
 
-@router.delete("/{event_id}/watch-folder", status_code=status.HTTP_204_NO_CONTENT)
-def stop_watch_folder(
+@router.delete("/{event_id}/watch-folders/{watch_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_watch_folder(
     event_id: int,
+    watch_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_studio),
 ):
-    """Stop watching and remove the folder watch."""
-    _owned_event_or_404(event_id, current_user, db)
-    watch = db.query(models.FolderWatch).filter(models.FolderWatch.event_id == event_id).first()
-    if not watch:
-        raise HTTPException(status_code=404, detail="No folder is being watched for this event")
+    """Stop watching one folder and remove it."""
+    watch = _owned_watch_or_404(event_id, watch_id, current_user, db)
     watcher_manager.stop(watch.id)
     db.delete(watch)
     db.commit()
-    logger.info("WATCH_FOLDER_STOP event=%s by=%s", event_id, current_user.id)
+    logger.info("WATCH_FOLDER_REMOVE event=%s watch=%s by=%s", event_id, watch_id, current_user.id)
     return None
 
 
-@router.post("/{event_id}/rescan", response_model=schemas.RescanResponse)
-def rescan_folder(
+@router.post("/{event_id}/watch-folders/{watch_id}/rescan", response_model=schemas.RescanResponse)
+def rescan_watch_folder(
     event_id: int,
+    watch_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_studio),
 ):
-    """Manually scan the watched folder now (ingest any new files)."""
-    _owned_event_or_404(event_id, current_user, db)
-    watch = db.query(models.FolderWatch).filter(models.FolderWatch.event_id == event_id).first()
-    if not watch:
-        raise HTTPException(status_code=404, detail="No folder is being watched for this event")
+    """Manually rescan one watched folder now."""
+    watch = _owned_watch_or_404(event_id, watch_id, current_user, db)
     if not os.path.isdir(watch.folder_path):
         raise HTTPException(status_code=400, detail=f"Folder no longer exists: {watch.folder_path}")
     uploaded = watcher_manager.scan(watch.id, event_id, watch.folder_path)
     return schemas.RescanResponse(uploaded=uploaded)
+
+
+@router.post("/{event_id}/rescan-all", response_model=schemas.RescanResponse)
+def rescan_all_folders(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_studio),
+):
+    """Rescan every watched folder for this event."""
+    _owned_event_or_404(event_id, current_user, db)
+    watches = db.query(models.FolderWatch).filter(models.FolderWatch.event_id == event_id).all()
+    total = 0
+    for w in watches:
+        if os.path.isdir(w.folder_path):
+            total += watcher_manager.scan(w.id, event_id, w.folder_path)
+    return schemas.RescanResponse(uploaded=total)
 
 
 # ---------------------- Privacy / DPDP ----------------------

@@ -31,16 +31,18 @@ pip install -r requirements.txt
 ```bash
 copy config.example.json config.json   # then edit values
 ```
-Set `api_url`, `api_key`, `event_id`, `folder`.
+Set `api_url`, `api_key`, `event_id`, and `folders` (a list — one per
+photographer/cameraman). A single `"folder": "..."` string still works too.
 
 ## 4. Run
 ```bash
 python wedfind_agent.py --config config.json
 ```
-Or all-CLI (no file):
+Or all-CLI (no file) — repeat `--folder` for multiple:
 ```bash
 python wedfind_agent.py --api-url https://api.yourhost.com/api ^
-  --api-key wfa_xxx --event-id 12 --folder "D:/Wedding/Event12"
+  --api-key wfa_xxx --event-id 12 ^
+  --folder "D:/Wedding/Cam1" --folder "D:/Wedding/Cam2"
 ```
 
 ## 5. Build a standalone .exe (optional)

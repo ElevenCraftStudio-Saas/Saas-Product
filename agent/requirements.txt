@@ -1,2 +1,4 @@
-requests==2.32.3
-watchdog==4.0.1
+# Loose lower bounds so installing into a shared venv doesn't downgrade
+# requests (firebase-admin's google-api-core needs >=2.33).
+requests>=2.32
+watchdog>=4.0

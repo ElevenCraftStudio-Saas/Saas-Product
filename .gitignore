@@ -55,3 +55,6 @@ Thumbs.db
 
 # ---- Claude / agent session files ----
 .claude/
+
+# ---- Desktop ingest agent (holds the studio API key) ----
+agent/config.json

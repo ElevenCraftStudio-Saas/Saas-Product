@@ -72,10 +72,19 @@ app.add_middleware(SlowAPIMiddleware)
 # Mount static files
 app.mount("/uploads", StaticFiles(directory=os.getenv("UPLOAD_DIR", "../uploads")), name="uploads")
 
-# Configure CORS
+# Configure CORS. FRONTEND_URL may be a comma-separated list; common localhost
+# dev ports (3000/3001) are always allowed so a port bump doesn't break preflight.
+_frontend_env = os.getenv("FRONTEND_URL", "http://localhost:3000")
+_allowed_origins = sorted({
+    *[o.strip() for o in _frontend_env.split(",") if o.strip()],
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+})
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("FRONTEND_URL", "http://localhost:3000")],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

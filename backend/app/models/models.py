@@ -126,7 +126,7 @@ class FolderWatch(Base):
     __tablename__ = "folder_watches"
 
     id = Column(Integer, primary_key=True, index=True)
-    event_id = Column(Integer, ForeignKey("events.id"), unique=True, index=True)  # one folder per event
+    event_id = Column(Integer, ForeignKey("events.id"), index=True)  # multiple folders per event
     folder_path = Column(String, nullable=False)
     enabled = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

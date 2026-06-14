@@ -2,6 +2,9 @@
   "api_url": "http://localhost:8000/api",
   "api_key": "wfa_PASTE_YOUR_STUDIO_API_KEY_HERE",
   "event_id": 1,
-  "folder": "D:/Wedding Photos/Event1",
+  "folders": [
+    "D:/Wedding Photos/Cameraman 1",
+    "D:/Wedding Photos/Cameraman 2"
+  ],
   "poll_seconds": 10
 }

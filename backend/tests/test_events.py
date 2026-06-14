@@ -22,12 +22,28 @@ def test_guest_cannot_create_event(client, as_guest):
 def test_watch_folder_validates_path(client, as_studio):
     eid = _create_event(client).json()["id"]
     # non-existent path → 400
-    r = client.post(f"/api/events/{eid}/watch-folder", json={"folder_path": "Z:/nope/nope"})
+    r = client.post(f"/api/events/{eid}/watch-folders", json={"folder_path": "Z:/nope/nope"})
     assert r.status_code == 400
     # valid temp dir → 200
     with tempfile.TemporaryDirectory() as d:
-        r2 = client.post(f"/api/events/{eid}/watch-folder", json={"folder_path": d})
+        r2 = client.post(f"/api/events/{eid}/watch-folders", json={"folder_path": d})
         assert r2.status_code == 200
+        wid = r2.json()["id"]
         assert r2.json()["watching"] in (True, False)  # observer started
+        # duplicate same folder → 409
+        assert client.post(f"/api/events/{eid}/watch-folders", json={"folder_path": d}).status_code == 409
         # cleanup watcher
-        client.delete(f"/api/events/{eid}/watch-folder")
+        client.delete(f"/api/events/{eid}/watch-folders/{wid}")
+
+
+def test_multiple_watch_folders(client, as_studio):
+    eid = _create_event(client).json()["id"]
+    with tempfile.TemporaryDirectory() as d1, tempfile.TemporaryDirectory() as d2:
+        client.post(f"/api/events/{eid}/watch-folders", json={"folder_path": d1})
+        client.post(f"/api/events/{eid}/watch-folders", json={"folder_path": d2})
+        lst = client.get(f"/api/events/{eid}/watch-folders")
+        assert lst.status_code == 200
+        assert len(lst.json()) == 2
+        # cleanup
+        for w in lst.json():
+            client.delete(f"/api/events/{eid}/watch-folders/{w['id']}")
