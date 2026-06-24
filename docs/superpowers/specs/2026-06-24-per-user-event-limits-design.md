@@ -1,80 +1,83 @@
-# Per-User Event Limits — Design
+# Admin/Studio Separation + Per-User Event Limits — Design
 
 **Date:** 2026-06-24
-**Goal:** Let an admin cap how many events each studio user can create, so the project can be opened to real-time test users without unbounded event creation.
+**Goal:** Open the app to real-time test users. Add a real admin role with its own page (manage users, set event limits, view analytics/audit), separate from the studio user page. Cap how many events each studio can create.
 
 ## Decisions (from brainstorming)
 
-- **Limit model:** per-user cap, admin-settable, with a global default for new users.
-- **Default:** `2` events per new user.
-- **Unlimited:** not a distinct concept. Every user has a numeric cap. "Unlimited" = admin sets a large number.
-- **Admin identity:** any `studio`-role user (reuses existing `get_current_studio` gate — matches current admin-panel behavior).
-- **Enforcement:** block event creation with `HTTP 403` and a message telling the user to contact the admin.
+- **Roles:** `admin`, `studio`, `guest`.
+- **Bootstrap:** the **first user becomes `admin`** (was `studio`). Everyone after = `guest` (least privilege). Admin promotes guests → studio.
+- **Separate pages:** admin-only `/admin` area; studio-only `/dashboard` area. Role-gated, not just auth-gated.
+- **Event limit:** per-user cap on studios, admin-settable, with a global default.
+- **Default limit:** `2` events per new studio. No "unlimited" concept — admin sets a big number if needed.
+- **Enforcement:** block event creation with `HTTP 403` + message telling the user to contact the admin.
+- **Deployment:** deferred. User will host on a subdomain once ready; a deploy guide is delivered at the end (not built now).
 
-## Data model
+## Roles & auth (backend)
 
-`User` ([backend/app/models/models.py](../../../backend/app/models/models.py)) gains:
+`deps.py`:
+- `_find_or_create_user`: first user (`count() == 0`) → `role="admin"`, else `role="guest"`.
+- New dependency `get_current_admin`: requires `role == "admin"`, else `403 "Admin access required"`.
+- `get_current_studio` unchanged (`role == "studio"`).
 
+`User` model gains:
 ```python
-max_events = Column(Integer, nullable=True)  # null = use DEFAULT_EVENT_LIMIT; int = explicit cap
+max_events = Column(Integer, nullable=True)  # null = DEFAULT_EVENT_LIMIT; int = explicit cap
 ```
-
-- `null` → fall back to global default (lets new users inherit the default without a backfill).
-- Alembic migration adds the nullable column. No backfill required.
+Alembic migration adds the nullable column. No backfill.
 
 ## Global default
 
-- Env var `DEFAULT_EVENT_LIMIT` (default `2`) read via settings/`os.getenv`.
-- Effective limit helper:
+- Env var `DEFAULT_EVENT_LIMIT` (default `2`).
+- Helper: `effective_event_limit(user) -> int = user.max_events if user.max_events is not None else DEFAULT_EVENT_LIMIT`.
 
+## Event-create enforcement (studio)
+
+In `create_event` ([events.py](../../../backend/app/routers/events.py)), before creating:
 ```python
-def effective_event_limit(user) -> int:
-    return user.max_events if user.max_events is not None else DEFAULT_EVENT_LIMIT
-```
-
-## Enforcement — event create
-
-In `create_event` ([backend/app/routers/events.py](../../../backend/app/routers/events.py)), before building the event:
-
-```python
-count = db.query(models.Event.id).filter(
-    models.Event.photographer_id == current_user.id
-).count()
+count = db.query(models.Event.id).filter(models.Event.photographer_id == current_user.id).count()
 limit = effective_event_limit(current_user)
 if count >= limit:
-    raise HTTPException(
-        status_code=403,
-        detail=f"Event limit reached ({count}/{limit}). Contact your admin to raise it.",
-    )
+    raise HTTPException(403, f"Event limit reached ({count}/{limit}). Contact your admin to raise it.")
 ```
 
-## Admin API ([backend/app/routers/admin.py](../../../backend/app/routers/admin.py))
+## Admin API ([admin.py](../../../backend/app/routers/admin.py)) — re-gated to `get_current_admin`
 
-- **`PATCH /api/admin/users/{user_id}/limit`** — body `{ "max_events": int | null }`, gated by `get_current_studio`.
-  - Validate `max_events` is `null` or `>= 0`.
-  - Returns updated `UserResponse`.
-- **`GET /api/admin/users`** response gains:
-  - `max_events: int | null` (raw stored value)
-  - `event_count: int` (current owned-event count, for "2/3"-style display)
-  - `effective_limit: int` (computed, so the UI need not know the default)
+- `GET /api/admin/users` → each user includes `role`, `max_events`, `event_count`, `effective_limit`.
+- `PATCH /api/admin/users/{id}/role` → promote/demote between `studio` and `guest`. Cannot demote self; cannot change an `admin` row (guard).
+- `PATCH /api/admin/users/{id}/limit` → body `{max_events: int|null}`, validate null or `>= 0`.
+- `GET /api/admin/activity` and `GET /api/admin/analytics` → **global** (all events), since admin owns none. (Previously scoped to caller's own events.)
 
-Schema changes in [backend/app/schemas/schemas.py](../../../backend/app/schemas/schemas.py): extend `UserResponse`; add `EventLimitUpdate { max_events: Optional[int] }`.
+Schemas ([schemas.py](../../../backend/app/schemas/schemas.py)): extend `UserResponse` (role, max_events, event_count, effective_limit); add `EventLimitUpdate { max_events: Optional[int] }`.
 
-## Frontend (admin panel + create flow)
+## Frontend — role-gated separate areas
 
-- **User-management table** (admin panel): add a column showing `event_count / effective_limit` and an editable number input for `max_events` (blank = inherit default). Save calls the new PATCH endpoint and refreshes via React Query.
-- **Event-create handler**: catch `403` from `POST /api/events/`, surface `error.response.data.detail` as a `sonner` toast (the contact-admin message).
+- **Expose role:** add `useMe()` React Query hook hitting `GET /api/auth/me`; returns backend user incl. `role`. Used by layouts + login redirect.
+- **Route groups:**
+  - `app/(admin)/admin/...` — own layout, guard `role === "admin"` (else redirect). Moves the existing admin page out of `(dashboard)`.
+  - `app/(dashboard)/...` — studio area, guard `role === "studio"` (currently auth-only). Remove the Admin nav link from the studio sidebar.
+- **Login redirect** ([login/page.tsx](../../../frontend/app/(auth)/login/page.tsx)): after sign-in, fetch me → `admin` → `/admin`, `studio` → `/dashboard`, `guest` → a "pending access — contact admin" screen.
+- **Admin page:** user table with role badge, promote/demote, editable `max_events` (blank = default), usage `event_count / effective_limit`; plus analytics + audit log (already built, now admin-only).
+- **Studio dashboard:** events list + create (catch `403` → `sonner` toast with the contact-admin message), settings/API keys.
 
-## Testing
+## Testing (pytest)
 
-Backend pytest additions:
-- create allowed under limit; blocked at/over limit (403 with message).
-- `null` `max_events` falls back to `DEFAULT_EVENT_LIMIT`.
-- `PATCH /limit` updates value; validates `>= 0`; rejects non-studio.
-- `GET /users` returns `event_count` + `effective_limit`.
+- Bootstrap: first user = admin; second = guest.
+- `get_current_admin` gate: admin passes; studio/guest → 403.
+- Event create: allowed under limit; 403 at/over limit (message); `null` → default 2.
+- `PATCH /limit`: updates; validates `>= 0`; admin-only.
+- `PATCH /role`: promote guest→studio; can't demote self/admin.
+- `GET /users`: returns role, event_count, effective_limit.
+- Admin analytics/activity: global across events.
+
+## Deployment guide (delivered at end, not built)
+
+- **Frontend → Vercel** (Next 16, auto-HTTPS for selfie camera). Point subdomain (e.g. `app.<domain>`) via CNAME.
+- **Backend → AWS Lightsail/EC2 in us-east-1** (same VPC as RDS → private DB access, no public exposure; ≥2GB RAM for InsightFace). Subdomain `api.<domain>` via A record + HTTPS (Caddy/Nginx). Set `NEXT_PUBLIC_API_URL=https://api.<domain>/api`, `FRONTEND_URL=https://app.<domain>` for CORS.
+- Alt backend: Railway/Fly.io (2GB) — faster, RDS stays public (keep SG rule).
 
 ## Out of scope
 
-- True role separation (super-admin vs studio) — intentionally deferred; any studio is admin for now.
-- Per-event-type or time-windowed quotas.
+- Multi-tenant org structures, billing.
 - Photo/storage quotas.
+- Self-service guest→studio signup (admin promotes manually).
