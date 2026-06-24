@@ -57,6 +57,7 @@ class Photo(Base):
     storage_key = Column(String, nullable=True)
     processing_status = Column(String, default=ProcessingStatus.PENDING)
     size_bytes = Column(Integer, nullable=True)  # bytes stored, for storage-quota accounting
+    thumb_key = Column(String, nullable=True)    # S3 key for the generated thumbnail
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
 
     event = relationship("Event", back_populates="photos")

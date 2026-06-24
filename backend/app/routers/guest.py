@@ -45,9 +45,10 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _photo_url(photo: models.Photo) -> str:
+def _photo_url(photo: models.Photo, thumb: bool = False) -> str:
     if photo.storage_provider == "s3":
-        return s3_service.generate_presigned_url(photo.storage_key, DOWNLOAD_URL_TTL) or ""
+        key = (photo.thumb_key or photo.storage_key) if thumb else photo.storage_key
+        return s3_service.generate_presigned_url(key, DOWNLOAD_URL_TTL) or ""
     return f"/uploads/{photo.filepath.replace('../uploads/', '')}"
 
 
@@ -149,7 +150,7 @@ async def match_selfie(
         )
 
         result = [
-            schemas.GuestPhoto(id=p.id, filename=p.filename, url=_photo_url(p))
+            schemas.GuestPhoto(id=p.id, filename=p.filename, url=_photo_url(p, thumb=True))
             for p in matched_photos
         ]
 

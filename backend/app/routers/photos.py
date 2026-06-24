@@ -6,7 +6,7 @@ from ..database import get_db
 from ..models import models
 from ..schemas import schemas
 from .deps import require_user
-from ..services.dispatch import enqueue_process_photo
+from ..services.dispatch import enqueue_process_photo, enqueue_make_thumbnail
 from ..services.s3_service import s3_service
 from ..services.photo_ingest import ingest_photo_bytes, is_allowed_image, MAX_FILE_SIZE
 
@@ -59,6 +59,7 @@ async def upload_photos(
         db_photo.url = s3_service.generate_presigned_url(db_photo.storage_key)
         db_photos.append(db_photo)
         enqueue_process_photo(db_photo.id, background_tasks)
+        enqueue_make_thumbnail(db_photo.id, background_tasks)
 
     return db_photos
 
@@ -80,7 +81,8 @@ def get_event_photos(
     
     for photo in photos:
         if photo.storage_provider == "s3":
-            photo.url = s3_service.generate_presigned_url(photo.storage_key)
+            # Serve the thumbnail in the grid; the original is fetched on download.
+            photo.url = s3_service.generate_presigned_url(photo.thumb_key or photo.storage_key)
         else:
             # Fallback for local files
             photo.url = f"/uploads/{photo.filepath.replace('../uploads/', '')}"

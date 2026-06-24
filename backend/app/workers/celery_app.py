@@ -22,6 +22,7 @@ celery_app = Celery(
     backend=settings.REDIS_URL,
     include=[
         "app.workers.face_tasks",
+        "app.workers.thumb_tasks",
         "app.workers.maintenance",
     ],
 )
