@@ -14,11 +14,6 @@ def test_user_creates_event(client, as_user):
     assert body["url"]  # presigned (mocked)
 
 
-def test_pending_cannot_create_event(client, as_pending):
-    r = _create_event(client)
-    assert r.status_code == 403
-
-
 # Folder-watch is admin-gated. as_admin also overrides require_user, so the
 # admin can create the event (owns it) and then manage its watch folders.
 def test_watch_folder_validates_path(client, as_admin):

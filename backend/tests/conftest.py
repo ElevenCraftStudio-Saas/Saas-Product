@@ -91,21 +91,7 @@ def as_user():
     return user
 
 
-@pytest.fixture
-def as_pending():
-    """Act as a pending (no-access) user; role gates must still 403."""
-    user = make_user(role="pending", email="pending@test.ai", firebase_uid="pending-uid")
-    cur = _override_current(user)
-    app_main.app.dependency_overrides[deps.get_current_user] = cur
-    return user
-
-
-# Back-compat aliases so not-yet-migrated tests keep importing; map to new roles.
+# Back-compat alias for any not-yet-migrated test.
 @pytest.fixture
 def as_studio(as_user):
     return as_user
-
-
-@pytest.fixture
-def as_guest(as_pending):
-    return as_pending

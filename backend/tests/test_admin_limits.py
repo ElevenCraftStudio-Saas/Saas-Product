@@ -51,14 +51,8 @@ def test_quota_endpoints_reject_user(client, as_user):
     assert client.get("/api/admin/users").status_code == 403
 
 
-def test_role_change_pending_to_user(client, as_admin):
+def test_role_promote_user_to_admin(client, as_admin):
     s = _seed_user_events("s4@test.ai", "s4", 0)
-    db = SessionLocal()
-    try:
-        db.query(models.User).filter(models.User.id == s.id).update({"role": "pending"})
-        db.commit()
-    finally:
-        db.close()
-    r = client.patch(f"/api/admin/users/{s.id}/role", json={"role": "user"})
+    r = client.patch(f"/api/admin/users/{s.id}/role", json={"role": "admin"})
     assert r.status_code == 200
-    assert r.json()["role"] == "user"
+    assert r.json()["role"] == "admin"

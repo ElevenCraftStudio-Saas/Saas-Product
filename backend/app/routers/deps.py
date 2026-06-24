@@ -32,14 +32,15 @@ def _find_or_create_user(decoded: dict, db: Session) -> models.User:
 
     email = decoded.get("email")
     phone = decoded.get("phone_number")
-    # Invite-only: every new login starts as 'pending' (no access). An admin
-    # grants 'user'. The admin itself is minted only by scripts/make_admin.py.
+    # Open signup: every new Firebase login is provisioned as a studio 'user'
+    # immediately (no approval workflow). Admin is minted via the admin panel
+    # (promote) or scripts/make_admin.py for bootstrap.
     user = models.User(
         firebase_uid=uid,
         email=email,
         phone=phone,
         name=decoded.get("name") or email or phone or "User",
-        role="pending",
+        role="user",
     )
     db.add(user)
     db.commit()

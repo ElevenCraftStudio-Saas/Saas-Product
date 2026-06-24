@@ -5,11 +5,11 @@ from app.routers import deps
 from tests.conftest import make_user
 
 
-def test_new_user_is_pending():
+def test_new_user_is_user():
     db = SessionLocal()
     try:
         u = deps._find_or_create_user({"uid": "x1", "email": "x1@test.ai"}, db)
-        assert u.role == "pending"
+        assert u.role == "user"
     finally:
         db.close()
 
@@ -18,7 +18,7 @@ def test_no_auto_admin_even_for_first_user():
     db = SessionLocal()
     try:
         first = deps._find_or_create_user({"uid": "f1", "email": "f1@test.ai"}, db)
-        assert first.role == "pending"
+        assert first.role == "user"  # open signup; admin minted only via promote/CLI
     finally:
         db.close()
 
@@ -36,9 +36,9 @@ def test_require_admin_rejects_user():
     assert e.value.detail == "Admin access required"
 
 
-def test_require_user_rejects_pending():
-    p = make_user(role="pending", email="p@test.ai", firebase_uid="p-uid")
+def test_require_user_rejects_admin():
+    a = make_user(role="admin", email="ra@test.ai", firebase_uid="ra-uid")
     with pytest.raises(HTTPException) as e:
-        deps.require_user(p)
+        deps.require_user(a)
     assert e.value.status_code == 403
     assert e.value.detail == "Studio access required"

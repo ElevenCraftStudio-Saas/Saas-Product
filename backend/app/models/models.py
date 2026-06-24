@@ -19,7 +19,7 @@ class User(Base):
     name = Column(String)
     email = Column(String, unique=True, index=True, nullable=True)
     phone = Column(String, nullable=True)
-    role = Column(String, nullable=False, default="pending")  # admin | user | pending
+    role = Column(String, nullable=False, default="user")  # admin | user
     max_events = Column(Integer, nullable=True)        # null = DEFAULT_EVENT_LIMIT
     storage_limit_mb = Column(Integer, nullable=True)  # null = DEFAULT_STORAGE_LIMIT_MB
     created_at = Column(DateTime(timezone=True), server_default=func.now())

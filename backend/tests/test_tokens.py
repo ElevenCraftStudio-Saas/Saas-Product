@@ -48,8 +48,8 @@ def test_revoked_key_rejected(client, as_admin):
 
 
 def test_token_target_must_be_user_role(client, as_admin):
-    p = make_user(role="pending", email="p2@test.ai", firebase_uid="p2")
-    r = client.post("/api/auth/tokens", json={"user_id": p.id, "name": "x"})
+    a = make_user(role="admin", email="a2@test.ai", firebase_uid="a2")
+    r = client.post("/api/auth/tokens", json={"user_id": a.id, "name": "x"})
     assert r.status_code == 400
 
 

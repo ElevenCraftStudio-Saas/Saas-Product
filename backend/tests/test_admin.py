@@ -36,28 +36,50 @@ def test_user_blocked_from_admin(client, as_user):
     assert client.get("/api/admin/users").status_code == 403
 
 
-def test_pending_blocked_from_admin(client, as_pending):
-    assert client.get("/api/admin/users").status_code == 403
-
-
-def test_change_user_role(client, as_admin):
+def test_promote_user_to_admin(client, as_admin):
     db = SessionLocal()
     try:
-        u = models.User(firebase_uid="x2", email="p2@test.ai", name="p2", role="pending")
+        u = models.User(firebase_uid="x2", email="u2@test.ai", name="u2", role="user")
         db.add(u); db.commit(); db.refresh(u)
         uid = u.id
     finally:
         db.close()
-    r = client.patch(f"/api/admin/users/{uid}/role", json={"role": "user"})
+    r = client.patch(f"/api/admin/users/{uid}/role", json={"role": "admin"})
     assert r.status_code == 200
-    assert r.json()["role"] == "user"
+    assert r.json()["role"] == "admin"
 
 
-def test_cannot_change_admin_role(client, as_admin):
+def test_role_must_be_user_or_admin(client, as_admin):
+    db = SessionLocal()
+    try:
+        u = models.User(firebase_uid="x3", email="u3@test.ai", name="u3", role="user")
+        db.add(u); db.commit(); db.refresh(u)
+        uid = u.id
+    finally:
+        db.close()
+    assert client.patch(f"/api/admin/users/{uid}/role", json={"role": "pending"}).status_code == 400
+
+
+def test_cannot_demote_last_admin(client, as_admin):
     users = client.get("/api/admin/users").json()
     admin_id = [u["id"] for u in users if u["role"] == "admin"][0]
-    r = client.patch(f"/api/admin/users/{admin_id}/role", json={"role": "pending"})
-    assert r.status_code == 400
+    r = client.patch(f"/api/admin/users/{admin_id}/role", json={"role": "user"})
+    assert r.status_code == 400  # last-admin lock
+
+
+def test_can_demote_admin_when_another_exists(client, as_admin):
+    # Seed a second admin, then the first can be demoted.
+    db = SessionLocal()
+    try:
+        db.add(models.User(firebase_uid="a2", email="a2@test.ai", name="a2", role="admin"))
+        db.commit()
+    finally:
+        db.close()
+    users = client.get("/api/admin/users").json()
+    a2_id = [u["id"] for u in users if u["email"] == "a2@test.ai"][0]
+    r = client.patch(f"/api/admin/users/{a2_id}/role", json={"role": "user"})
+    assert r.status_code == 200
+    assert r.json()["role"] == "user"
 
 
 # ---- audit log (global) ----

@@ -55,13 +55,16 @@ def set_user_role(
     db: Session = Depends(get_db),
     _admin: models.User = Depends(require_admin),
 ):
-    if body.role not in ("user", "pending"):
-        raise HTTPException(status_code=400, detail="role must be 'user' or 'pending'")
+    if body.role not in ("user", "admin"):
+        raise HTTPException(status_code=400, detail="role must be 'user' or 'admin'")
     target = db.query(models.User).filter(models.User.id == user_id).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    if target.role == "admin":
-        raise HTTPException(status_code=400, detail="Cannot change the admin's role")
+    # Last-admin lock: never let the only admin be demoted (lockout protection).
+    if target.role == "admin" and body.role != "admin":
+        admin_count = db.query(models.User).filter(models.User.role == "admin").count()
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="Cannot demote the last admin")
     target.role = body.role
     db.commit()
     db.refresh(target)

@@ -1,9 +1,8 @@
-"""Proves the migration's role remap migrates existing data safely:
-lowest-id -> admin, old studio -> user, old guest -> pending, exactly one admin.
-"""
+"""Migration f6a7b8c9d0e1 removes the 'pending' role: pending -> user,
+admins untouched, idempotent."""
 from app.database import SessionLocal
 from app.models import models
-from app.core.role_migration import remap_roles
+from app.core.role_migration import collapse_pending
 
 
 def _seed(role, email, uid):
@@ -18,34 +17,34 @@ def _seed(role, email, uid):
         db.close()
 
 
-def test_remap_assigns_roles_deterministically():
-    first = _seed("studio", "owner@test.ai", "owner")   # lowest id -> admin
-    studio2 = _seed("studio", "s2@test.ai", "s2")        # -> user
-    guest1 = _seed("guest", "g1@test.ai", "g1")          # -> pending
+def test_collapse_pending_to_user():
+    a = _seed("admin", "a@test.ai", "a")
+    u = _seed("user", "u@test.ai", "u")
+    p = _seed("pending", "p@test.ai", "p")
 
     db = SessionLocal()
     try:
-        remap_roles(db.connection())
+        collapse_pending(db.connection())
         db.commit()
-        roles = {u.id: u.role for u in db.query(models.User).all()}
+        roles = {x.id: x.role for x in db.query(models.User).all()}
     finally:
         db.close()
 
-    assert roles[first] == "admin"
-    assert roles[studio2] == "user"
-    assert roles[guest1] == "pending"
-    assert list(roles.values()).count("admin") == 1
+    assert roles[a] == "admin"   # admin untouched
+    assert roles[u] == "user"
+    assert roles[p] == "user"    # pending collapsed
+    assert "pending" not in roles.values()
 
 
-def test_remap_idempotent():
-    _seed("studio", "a@test.ai", "a")
+def test_collapse_pending_idempotent():
+    _seed("pending", "p2@test.ai", "p2")
     db = SessionLocal()
     try:
-        remap_roles(db.connection())
+        collapse_pending(db.connection())
         db.commit()
-        remap_roles(db.connection())  # second run must not change anything
+        collapse_pending(db.connection())
         db.commit()
-        roles = [u.role for u in db.query(models.User).all()]
+        roles = [x.role for x in db.query(models.User).all()]
     finally:
         db.close()
-    assert roles.count("admin") == 1
+    assert "pending" not in roles

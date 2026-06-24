@@ -161,7 +161,7 @@ class ApiTokenCreated(ApiTokenInfo):
 
 # Admin Schemas
 class RoleUpdate(BaseModel):
-    role: str  # "user" or "pending"
+    role: str  # "user" or "admin"
 
 
 class AdminUserResponse(UserResponse):

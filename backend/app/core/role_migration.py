@@ -14,9 +14,17 @@ from sqlalchemy import text
 
 
 def remap_roles(conn) -> None:
-    """Apply the role remap on an open SQLAlchemy connection."""
+    """Historical (migration e4f5a6b7c8d9): studio->user, guest->pending,
+    lowest-id->admin. Kept for that migration's import; superseded by the
+    pending removal (see collapse_pending)."""
     conn.execute(text("UPDATE users SET role='user' WHERE role='studio'"))
     conn.execute(text("UPDATE users SET role='pending' WHERE role='guest'"))
     row = conn.execute(text("SELECT id FROM users ORDER BY id ASC LIMIT 1")).fetchone()
     if row is not None:
         conn.execute(text("UPDATE users SET role='admin' WHERE id=:i"), {"i": row[0]})
+
+
+def collapse_pending(conn) -> None:
+    """Remove the 'pending' role: every pending user becomes a 'user'.
+    Admins are untouched. Idempotent."""
+    conn.execute(text("UPDATE users SET role='user' WHERE role='pending'"))

@@ -19,10 +19,16 @@ def test_user_cannot_create_token(client, as_user):
     assert r.status_code == 403
 
 
-def test_pending_cannot_create_event(client, as_pending):
-    r = client.post("/api/events/", json={"title": "E", "description": "d", "event_date": "2026-07-01T00:00:00"})
-    assert r.status_code == 403
-    assert r.json()["detail"] == "Studio access required"
+def test_admin_cannot_create_event_role(client, as_admin):
+    # Admin is not a studio user: require_user must 403 an admin token.
+    # (as_admin overrides require_user in tests, so assert the dep directly.)
+    from app.routers import deps
+    from fastapi import HTTPException
+    import pytest
+    admin_user = type("U", (), {"role": "admin"})()
+    with pytest.raises(HTTPException) as e:
+        deps.require_user(admin_user)
+    assert e.value.status_code == 403
 
 
 # Admin-gated event sub-routes must 403 for a studio user (these lost their
@@ -43,5 +49,5 @@ def test_user_blocked_from_rescan_all(client, as_user):
     assert client.post("/api/events/1/rescan-all").status_code == 403
 
 
-def test_pending_blocked_from_admin_analytics(client, as_pending):
+def test_user_blocked_from_admin_analytics(client, as_user):
     assert client.get("/api/admin/analytics").status_code == 403

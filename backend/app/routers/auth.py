@@ -18,7 +18,7 @@ router = APIRouter()
 
 class PromoteRequest(BaseModel):
     email: str
-    role: str = "user"  # "user" or "pending"
+    role: str = "user"  # "user" or "admin"
 
 
 @router.get("/me", response_model=schemas.UserResponse)
@@ -33,14 +33,16 @@ def promote_user(
     db: Session = Depends(get_db),
     _admin: models.User = Depends(require_admin),
 ):
-    """Grant/revoke studio access. Admin-only."""
-    if body.role not in ("user", "pending"):
-        raise HTTPException(status_code=400, detail="role must be 'user' or 'pending'")
+    """Set a user's role (user or admin) by email. Admin-only."""
+    if body.role not in ("user", "admin"):
+        raise HTTPException(status_code=400, detail="role must be 'user' or 'admin'")
     target = db.query(models.User).filter(models.User.email == body.email).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found (must sign in once first)")
-    if target.role == "admin":
-        raise HTTPException(status_code=400, detail="Cannot change the admin's role")
+    if target.role == "admin" and body.role != "admin":
+        admin_count = db.query(models.User).filter(models.User.role == "admin").count()
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="Cannot demote the last admin")
     target.role = body.role
     db.commit()
     db.refresh(target)
