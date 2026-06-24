@@ -11,6 +11,8 @@ class UserResponse(BaseModel):
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
     role: str
+    max_events: Optional[int] = None
+    storage_limit_mb: Optional[int] = None
     created_at: datetime
 
     class Config:
@@ -159,7 +161,22 @@ class ApiTokenCreated(ApiTokenInfo):
 
 # Admin Schemas
 class RoleUpdate(BaseModel):
-    role: str  # "studio" or "guest"
+    role: str  # "user" or "pending"
+
+
+class AdminUserResponse(UserResponse):
+    event_count: int = 0
+    effective_limit: int = 0
+    effective_storage_limit_mb: int = 0
+    storage_used_mb: int = 0
+
+
+class EventLimitUpdate(BaseModel):
+    max_events: Optional[int] = None
+
+
+class StorageLimitUpdate(BaseModel):
+    storage_limit_mb: Optional[int] = None
 
 
 class ActivityRecord(BaseModel):

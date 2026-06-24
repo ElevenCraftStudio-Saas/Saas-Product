@@ -1,4 +1,4 @@
-"""Admin endpoints: user management, audit log, analytics."""
+"""Admin endpoints: user management, audit log, analytics (admin-only, global)."""
 from app.database import SessionLocal
 from app.models import models
 from app.services import activity, photo_ingest
@@ -12,42 +12,43 @@ def _create_event(client):
 
 # ---- user management ----
 
-def test_list_users(client, as_studio):
+def test_list_users(client, as_admin):
     r = client.get("/api/admin/users")
     assert r.status_code == 200
-    assert any(u["role"] == "studio" for u in r.json())
+    assert any(u["role"] == "admin" for u in r.json())
 
 
-def test_guest_blocked_from_admin(client, as_guest):
+def test_user_blocked_from_admin(client, as_user):
     assert client.get("/api/admin/users").status_code == 403
 
 
-def test_change_user_role(client, as_studio):
-    # make a second user to promote
+def test_pending_blocked_from_admin(client, as_pending):
+    assert client.get("/api/admin/users").status_code == 403
+
+
+def test_change_user_role(client, as_admin):
     db = SessionLocal()
     try:
-        u = models.User(firebase_uid="x2", email="g2@test.ai", name="g2", role="guest")
+        u = models.User(firebase_uid="x2", email="p2@test.ai", name="p2", role="pending")
         db.add(u); db.commit(); db.refresh(u)
         uid = u.id
     finally:
         db.close()
-    r = client.patch(f"/api/admin/users/{uid}/role", json={"role": "studio"})
+    r = client.patch(f"/api/admin/users/{uid}/role", json={"role": "user"})
     assert r.status_code == 200
-    assert r.json()["role"] == "studio"
+    assert r.json()["role"] == "user"
 
 
-def test_cannot_demote_self(client, as_studio):
-    me = client.get("/api/auth/me")  # current studio
-    # find own id via users list
+def test_cannot_change_admin_role(client, as_admin):
     users = client.get("/api/admin/users").json()
-    my_id = [u["id"] for u in users if u["role"] == "studio"][0]
-    r = client.patch(f"/api/admin/users/{my_id}/role", json={"role": "guest"})
+    admin_id = [u["id"] for u in users if u["role"] == "admin"][0]
+    r = client.patch(f"/api/admin/users/{admin_id}/role", json={"role": "pending"})
     assert r.status_code == 400
 
 
-# ---- audit log ----
+# ---- audit log (global) ----
 
-def test_activity_scoped_to_owned_events(client, as_studio):
+def test_activity_global(client, as_admin):
     ev = _create_event(client)
     db = SessionLocal()
     try:
@@ -59,9 +60,9 @@ def test_activity_scoped_to_owned_events(client, as_studio):
     assert any(a["action"] == "EVENT_VIEWED" for a in r.json())
 
 
-# ---- analytics ----
+# ---- analytics (global) ----
 
-def test_analytics_counts(client, as_studio):
+def test_analytics_counts(client, as_admin):
     ev = _create_event(client)
     db = SessionLocal()
     try:

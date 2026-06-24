@@ -16,39 +16,92 @@ from ..database import get_db
 from ..models import models
 from ..schemas import schemas
 from ..services import activity
-from .deps import get_current_studio
+from .deps import require_admin
+from ..core.limits import (
+    effective_event_limit, effective_storage_limit_mb, user_storage_used_bytes,
+)
 
 router = APIRouter()
 
 
+def _admin_user(db: Session, u: models.User) -> schemas.AdminUserResponse:
+    ec = db.query(models.Event.id).filter(models.Event.photographer_id == u.id).count()
+    used_mb = user_storage_used_bytes(db, u) // (1024 * 1024)
+    return schemas.AdminUserResponse(
+        id=u.id, firebase_uid=u.firebase_uid, name=u.name, email=u.email, phone=u.phone,
+        role=u.role, max_events=u.max_events, storage_limit_mb=u.storage_limit_mb,
+        created_at=u.created_at, event_count=ec,
+        effective_limit=effective_event_limit(u),
+        effective_storage_limit_mb=effective_storage_limit_mb(u),
+        storage_used_mb=used_mb,
+    )
+
+
 # ---------------------- User management ----------------------
 
-@router.get("/users", response_model=List[schemas.UserResponse])
+@router.get("/users", response_model=List[schemas.AdminUserResponse])
 def list_users(
     db: Session = Depends(get_db),
-    _admin: models.User = Depends(get_current_studio),
+    _admin: models.User = Depends(require_admin),
 ):
-    return db.query(models.User).order_by(models.User.created_at.desc()).all()
+    users = db.query(models.User).order_by(models.User.created_at.desc()).all()
+    return [_admin_user(db, u) for u in users]
 
 
-@router.patch("/users/{user_id}/role", response_model=schemas.UserResponse)
+@router.patch("/users/{user_id}/role", response_model=schemas.AdminUserResponse)
 def set_user_role(
     user_id: int,
     body: schemas.RoleUpdate,
     db: Session = Depends(get_db),
-    admin: models.User = Depends(get_current_studio),
+    _admin: models.User = Depends(require_admin),
 ):
-    if body.role not in ("studio", "guest"):
-        raise HTTPException(status_code=400, detail="role must be 'studio' or 'guest'")
-    if user_id == admin.id and body.role != "studio":
-        raise HTTPException(status_code=400, detail="You cannot demote yourself")
+    if body.role not in ("user", "pending"):
+        raise HTTPException(status_code=400, detail="role must be 'user' or 'pending'")
     target = db.query(models.User).filter(models.User.id == user_id).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
+    if target.role == "admin":
+        raise HTTPException(status_code=400, detail="Cannot change the admin's role")
     target.role = body.role
     db.commit()
     db.refresh(target)
-    return target
+    return _admin_user(db, target)
+
+
+@router.patch("/users/{user_id}/limit", response_model=schemas.AdminUserResponse)
+def set_user_limit(
+    user_id: int,
+    body: schemas.EventLimitUpdate,
+    db: Session = Depends(get_db),
+    _admin: models.User = Depends(require_admin),
+):
+    if body.max_events is not None and body.max_events < 0:
+        raise HTTPException(status_code=400, detail="max_events must be null or >= 0")
+    target = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    target.max_events = body.max_events
+    db.commit()
+    db.refresh(target)
+    return _admin_user(db, target)
+
+
+@router.patch("/users/{user_id}/storage", response_model=schemas.AdminUserResponse)
+def set_user_storage(
+    user_id: int,
+    body: schemas.StorageLimitUpdate,
+    db: Session = Depends(get_db),
+    _admin: models.User = Depends(require_admin),
+):
+    if body.storage_limit_mb is not None and body.storage_limit_mb < 0:
+        raise HTTPException(status_code=400, detail="storage_limit_mb must be null or >= 0")
+    target = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    target.storage_limit_mb = body.storage_limit_mb
+    db.commit()
+    db.refresh(target)
+    return _admin_user(db, target)
 
 
 # ---------------------- Audit log viewer ----------------------
@@ -59,19 +112,11 @@ def list_activity(
     action: Optional[str] = None,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio),
+    _admin: models.User = Depends(require_admin),
 ):
-    # Only events owned by this studio.
-    owned_ids = [
-        eid for (eid,) in db.query(models.Event.id)
-        .filter(models.Event.photographer_id == current_user.id).all()
-    ]
-    if not owned_ids:
-        return []
-    q = db.query(models.ActivityLog).filter(models.ActivityLog.event_id.in_(owned_ids))
+    # Admin sees all activity globally.
+    q = db.query(models.ActivityLog)
     if event_id is not None:
-        if event_id not in owned_ids:
-            raise HTTPException(status_code=404, detail="Event not found")
         q = q.filter(models.ActivityLog.event_id == event_id)
     if action:
         q = q.filter(models.ActivityLog.action == action)
@@ -84,11 +129,10 @@ def list_activity(
 @router.get("/analytics", response_model=schemas.AnalyticsSummary)
 def analytics(
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio),
+    _admin: models.User = Depends(require_admin),
 ):
     events = (
         db.query(models.Event)
-        .filter(models.Event.photographer_id == current_user.id)
         .order_by(models.Event.created_at.desc())
         .all()
     )
