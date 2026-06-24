@@ -31,23 +31,27 @@ def match_event(db: Session, event_id: int, query_embedding, threshold: float) -
 
     if db.bind.dialect.name == "postgresql":
         vec = _to_vec_literal(query_embedding)
-        # Indexed cosine search: similarity = 1 - cosine_distance.
+        # HNSW KNN: event-scoped pre-filter + ORDER BY <=> LIMIT uses the index
+        # (a bare "WHERE distance >= threshold" cannot). Over-fetch K, then keep
+        # only those within the cosine threshold (similarity = 1 - distance).
+        db.execute(text("SET LOCAL hnsw.ef_search = 100"))
         rows = db.execute(
             text(
                 """
-                SELECT DISTINCT fe.photo_id
+                SELECT fe.photo_id, (fe.embedding_vec <=> CAST(:q AS vector)) AS dist
                 FROM face_embeddings fe
-                JOIN photos p ON p.id = fe.photo_id
-                WHERE p.event_id = :eid
-                  AND fe.embedding_vec IS NOT NULL
-                  AND (1 - (fe.embedding_vec <=> CAST(:q AS vector))) >= :th
+                WHERE fe.event_id = :eid AND fe.embedding_vec IS NOT NULL
+                ORDER BY fe.embedding_vec <=> CAST(:q AS vector)
+                LIMIT 100
                 """
             ),
-            {"eid": event_id, "q": vec, "th": threshold},
+            {"eid": event_id, "q": vec},
         ).fetchall()
-        matched.update(r[0] for r in rows)
+        for photo_id, dist in rows:
+            if (1 - float(dist)) >= threshold:
+                matched.add(photo_id)
 
-        # Legacy rows without a backfilled vector → compare in Python.
+        # Legacy rows lacking a backfilled vector → compare in Python.
         legacy = db.execute(
             text(
                 """

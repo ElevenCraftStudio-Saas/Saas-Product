@@ -68,6 +68,7 @@ class FaceEmbedding(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     photo_id = Column(Integer, ForeignKey("photos.id"), index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), index=True, nullable=True)  # denormalized for event-scoped KNN
     embedding = Column(JSON)  # Store list of floats
     face_box = Column(JSON)   # Store [x1, y1, x2, y2]
     created_at = Column(DateTime(timezone=True), server_default=func.now())

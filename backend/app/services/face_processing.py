@@ -55,6 +55,7 @@ def process_photo_faces(photo_id: int, raise_on_error: bool = False):
 
             db_face = models.FaceEmbedding(
                 photo_id=photo_id,
+                event_id=photo.event_id,
                 embedding=embedding_list,
                 face_box=bbox_list
             )
