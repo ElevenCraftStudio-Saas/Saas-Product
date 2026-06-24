@@ -4,7 +4,7 @@ from typing import List
 from ..database import get_db
 from ..models import models
 from ..schemas import schemas
-from .deps import get_current_studio
+from .deps import require_admin, require_user
 from ..utils.qr import generate_qr_code
 import uuid
 import re
@@ -26,6 +26,14 @@ def _owned_event_or_404(event_id: int, user: models.User, db: Session) -> models
         models.Event.id == event_id,
         models.Event.photographer_id == user.id,
     ).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return event
+
+
+def _event_or_404(event_id: int, db: Session) -> models.Event:
+    """Look up an event by id without an owner filter (admin-gated routes)."""
+    event = db.query(models.Event).filter(models.Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     return event
@@ -64,7 +72,7 @@ def slugify(text: str):
 def create_event(
     event_in: schemas.EventCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio)
+    current_user: models.User = Depends(require_user)
 ):
     slug = f"{slugify(event_in.title)}-{str(uuid.uuid4())[:8]}"
     
@@ -112,7 +120,7 @@ def create_event(
 @router.get("/", response_model=List[schemas.EventResponse])
 def get_events(
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio)
+    current_user: models.User = Depends(require_user)
 ):
     events = db.query(models.Event).filter(models.Event.photographer_id == current_user.id).all()
     for event in events:
@@ -126,7 +134,7 @@ def get_events(
 def get_event(
     event_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio)
+    current_user: models.User = Depends(require_user)
 ):
     event = db.query(models.Event).filter(
         models.Event.id == event_id,
@@ -146,7 +154,7 @@ def get_event(
 def delete_event(
     event_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio)
+    current_user: models.User = Depends(require_user)
 ):
     event = db.query(models.Event).filter(
         models.Event.id == event_id,
@@ -186,8 +194,8 @@ def delete_event(
 # An event can watch MANY folders (e.g. one per photographer/cameraman). Each
 # FolderWatch row is one folder; the watcher_manager keys observers by watch id.
 
-def _owned_watch_or_404(event_id: int, watch_id: int, user: models.User, db: Session) -> models.FolderWatch:
-    _owned_event_or_404(event_id, user, db)
+def _watch_or_404(event_id: int, watch_id: int, db: Session) -> models.FolderWatch:
+    _event_or_404(event_id, db)
     watch = db.query(models.FolderWatch).filter(
         models.FolderWatch.id == watch_id,
         models.FolderWatch.event_id == event_id,
@@ -202,10 +210,10 @@ def add_watch_folder(
     event_id: int,
     body: schemas.FolderWatchCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio),
+    current_user: models.User = Depends(require_admin),
 ):
     """Add a folder to watch for this event and start watching it."""
-    _owned_event_or_404(event_id, current_user, db)
+    _event_or_404(event_id, db)
     folder = _validate_folder_path(body.folder_path)
 
     existing = db.query(models.FolderWatch).filter(
@@ -230,9 +238,9 @@ def add_watch_folder(
 def list_watch_folders(
     event_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio),
+    current_user: models.User = Depends(require_admin),
 ):
-    _owned_event_or_404(event_id, current_user, db)
+    _event_or_404(event_id, db)
     watches = (
         db.query(models.FolderWatch)
         .filter(models.FolderWatch.event_id == event_id)
@@ -247,10 +255,10 @@ def remove_watch_folder(
     event_id: int,
     watch_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio),
+    current_user: models.User = Depends(require_admin),
 ):
     """Stop watching one folder and remove it."""
-    watch = _owned_watch_or_404(event_id, watch_id, current_user, db)
+    watch = _watch_or_404(event_id, watch_id, db)
     watcher_manager.stop(watch.id)
     db.delete(watch)
     db.commit()
@@ -263,10 +271,10 @@ def rescan_watch_folder(
     event_id: int,
     watch_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio),
+    current_user: models.User = Depends(require_admin),
 ):
     """Manually rescan one watched folder now."""
-    watch = _owned_watch_or_404(event_id, watch_id, current_user, db)
+    watch = _watch_or_404(event_id, watch_id, db)
     if not os.path.isdir(watch.folder_path):
         raise HTTPException(status_code=400, detail=f"Folder no longer exists: {watch.folder_path}")
     uploaded = watcher_manager.scan(watch.id, event_id, watch.folder_path)
@@ -277,10 +285,10 @@ def rescan_watch_folder(
 def rescan_all_folders(
     event_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio),
+    current_user: models.User = Depends(require_admin),
 ):
     """Rescan every watched folder for this event."""
-    _owned_event_or_404(event_id, current_user, db)
+    _event_or_404(event_id, db)
     watches = db.query(models.FolderWatch).filter(models.FolderWatch.event_id == event_id).all()
     total = 0
     for w in watches:
@@ -311,9 +319,9 @@ def _privacy_summary(event: models.Event, db: Session) -> schemas.PrivacySummary
 def get_privacy(
     event_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio),
+    current_user: models.User = Depends(require_admin),
 ):
-    event = _owned_event_or_404(event_id, current_user, db)
+    event = _event_or_404(event_id, db)
     return _privacy_summary(event, db)
 
 
@@ -322,9 +330,9 @@ def set_retention(
     event_id: int,
     body: schemas.RetentionUpdate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio),
+    current_user: models.User = Depends(require_admin),
 ):
-    event = _owned_event_or_404(event_id, current_user, db)
+    event = _event_or_404(event_id, db)
     if body.retention_days is not None and body.retention_days < 1:
         raise HTTPException(status_code=400, detail="retention_days must be >= 1 or null")
     event.retention_days = body.retention_days
@@ -338,9 +346,9 @@ def set_retention(
 def list_consents(
     event_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio),
+    current_user: models.User = Depends(require_admin),
 ):
-    _owned_event_or_404(event_id, current_user, db)
+    _event_or_404(event_id, db)
     return (
         db.query(models.GuestConsent)
         .filter(models.GuestConsent.event_id == event_id)
@@ -354,10 +362,10 @@ def export_consents(
     event_id: int,
     format: str = "csv",
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio),
+    current_user: models.User = Depends(require_admin),
 ):
     """Download proof-of-consent ledger (CSV or PDF) for compliance/audit."""
-    event = _owned_event_or_404(event_id, current_user, db)
+    event = _event_or_404(event_id, db)
     rows = (
         db.query(models.GuestConsent)
         .filter(models.GuestConsent.event_id == event_id)

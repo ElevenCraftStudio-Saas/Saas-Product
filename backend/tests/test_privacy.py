@@ -28,7 +28,7 @@ def _add_consent(event_id, ip="1.2.3.4"):
 
 # ---- retention summary + update ----
 
-def test_retention_default_off(client, as_studio):
+def test_retention_default_off(client, as_admin):
     ev = _create_event(client)
     r = client.get(f"/api/events/{ev['id']}/privacy")
     assert r.status_code == 200
@@ -37,7 +37,7 @@ def test_retention_default_off(client, as_studio):
     assert body["scheduled_purge_at"] is None
 
 
-def test_set_retention_computes_purge_date(client, as_studio):
+def test_set_retention_computes_purge_date(client, as_admin):
     ev = _create_event(client)
     r = client.patch(f"/api/events/{ev['id']}/retention", json={"retention_days": 30})
     assert r.status_code == 200
@@ -45,7 +45,7 @@ def test_set_retention_computes_purge_date(client, as_studio):
     assert r.json()["scheduled_purge_at"] is not None  # event_date + 30d
 
 
-def test_retention_rejects_zero(client, as_studio):
+def test_retention_rejects_zero(client, as_admin):
     ev = _create_event(client)
     r = client.patch(f"/api/events/{ev['id']}/retention", json={"retention_days": 0})
     assert r.status_code == 400
@@ -53,7 +53,7 @@ def test_retention_rejects_zero(client, as_studio):
 
 # ---- consent ledger + export ----
 
-def test_consent_ledger_and_csv_export(client, as_studio):
+def test_consent_ledger_and_csv_export(client, as_admin):
     ev = _create_event(client)
     _add_consent(ev["id"])
     _add_consent(ev["id"], ip="5.6.7.8")
@@ -72,7 +72,7 @@ def test_consent_ledger_and_csv_export(client, as_studio):
 
 # ---- retention sweep ----
 
-def test_purge_expired_deletes_old_event_photos(client, as_studio):
+def test_purge_expired_deletes_old_event_photos(client, as_admin):
     ev = _create_event(client)
     db = SessionLocal()
     try:
@@ -92,7 +92,7 @@ def test_purge_expired_deletes_old_event_photos(client, as_studio):
         db.close()
 
 
-def test_purge_skips_non_expired(client, as_studio):
+def test_purge_skips_non_expired(client, as_admin):
     ev = _create_event(client)
     db = SessionLocal()
     try:
@@ -111,7 +111,7 @@ def test_purge_skips_non_expired(client, as_studio):
 
 # ---- erasure ----
 
-def test_erase_removes_only_caller_ip(client, as_studio):
+def test_erase_removes_only_caller_ip(client, as_admin):
     ev = _create_event(client)
     _add_consent(ev["id"], ip="9.9.9.9")
     _add_consent(ev["id"], ip="8.8.8.8")

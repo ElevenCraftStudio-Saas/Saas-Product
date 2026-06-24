@@ -5,7 +5,7 @@ import logging
 from ..database import get_db
 from ..models import models
 from ..schemas import schemas
-from .deps import get_current_studio
+from .deps import require_user
 from ..services.face_processing import process_photo_faces
 from ..services.s3_service import s3_service
 from ..services.photo_ingest import ingest_photo_bytes, is_allowed_image, MAX_FILE_SIZE
@@ -19,7 +19,7 @@ async def upload_photos(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio)
+    current_user: models.User = Depends(require_user)
 ):
     event = db.query(models.Event).filter(
         models.Event.id == event_id,
@@ -66,7 +66,7 @@ async def upload_photos(
 def get_event_photos(
     event_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio)
+    current_user: models.User = Depends(require_user)
 ):
     event = db.query(models.Event).filter(
         models.Event.id == event_id,

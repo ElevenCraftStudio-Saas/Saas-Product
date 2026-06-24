@@ -11,14 +11,14 @@ from ..database import get_db
 from ..models import models
 from ..schemas import schemas
 from ..services import api_tokens
-from .deps import get_current_user, get_current_studio
+from .deps import get_current_user, require_admin
 
 router = APIRouter()
 
 
 class PromoteRequest(BaseModel):
     email: str
-    role: str = "studio"  # "studio" or "guest"
+    role: str = "user"  # "user" or "pending"
 
 
 @router.get("/me", response_model=schemas.UserResponse)
@@ -31,14 +31,16 @@ def read_me(current_user: models.User = Depends(get_current_user)):
 def promote_user(
     body: PromoteRequest,
     db: Session = Depends(get_db),
-    _admin: models.User = Depends(get_current_studio),
+    _admin: models.User = Depends(require_admin),
 ):
-    """Grant/revoke studio access. Studio-only (the bootstrap studio acts as admin)."""
-    if body.role not in ("studio", "guest"):
-        raise HTTPException(status_code=400, detail="role must be 'studio' or 'guest'")
+    """Grant/revoke studio access. Admin-only."""
+    if body.role not in ("user", "pending"):
+        raise HTTPException(status_code=400, detail="role must be 'user' or 'pending'")
     target = db.query(models.User).filter(models.User.email == body.email).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found (must sign in once first)")
+    if target.role == "admin":
+        raise HTTPException(status_code=400, detail="Cannot change the admin's role")
     target.role = body.role
     db.commit()
     db.refresh(target)
@@ -51,10 +53,19 @@ def promote_user(
 def create_api_token(
     body: schemas.ApiTokenCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio),
+    _admin: models.User = Depends(require_admin),
 ):
-    """Create an API key for the desktop agent. Plaintext returned ONCE."""
-    row, plaintext = api_tokens.generate_token(db, current_user, body.name)
+    """Admin creates an agent API key assigned to a target studio user.
+
+    The agent authenticates AS that user, so it can ingest into the user's
+    events. Plaintext returned ONCE.
+    """
+    target = db.query(models.User).filter(models.User.id == body.user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Target user not found")
+    if target.role != "user":
+        raise HTTPException(status_code=400, detail="Tokens may only be assigned to a 'user' account")
+    row, plaintext = api_tokens.generate_token(db, target, body.name)
     return schemas.ApiTokenCreated(
         id=row.id, name=row.name, token_prefix=row.token_prefix,
         revoked=row.revoked, created_at=row.created_at, last_used_at=row.last_used_at,
@@ -65,11 +76,11 @@ def create_api_token(
 @router.get("/tokens", response_model=List[schemas.ApiTokenInfo])
 def list_api_tokens(
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio),
+    _admin: models.User = Depends(require_admin),
 ):
+    """Admin lists all agent tokens across users."""
     return (
         db.query(models.ApiToken)
-        .filter(models.ApiToken.user_id == current_user.id)
         .order_by(models.ApiToken.created_at.desc())
         .all()
     )
@@ -79,13 +90,9 @@ def list_api_tokens(
 def revoke_api_token(
     token_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_studio),
+    _admin: models.User = Depends(require_admin),
 ):
-    row = (
-        db.query(models.ApiToken)
-        .filter(models.ApiToken.id == token_id, models.ApiToken.user_id == current_user.id)
-        .first()
-    )
+    row = db.query(models.ApiToken).filter(models.ApiToken.id == token_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="Token not found")
     row.revoked = True

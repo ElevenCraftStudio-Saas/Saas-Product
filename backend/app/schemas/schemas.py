@@ -137,6 +137,7 @@ class EraseResponse(BaseModel):
 
 # API token (desktop agent) Schemas
 class ApiTokenCreate(BaseModel):
+    user_id: int            # target studio user the agent will act as
     name: str = "agent"
 
 
