@@ -1,0 +1,77 @@
+name: ci
+
+on:
+  push: { branches: [main] }
+  pull_request: {}
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      # Settings is fail-fast; provide a full valid env. Tests force SQLite via
+      # conftest, but the migration step below uses the real Postgres service.
+      DATABASE_URL: sqlite:///./test_wedfind.db
+      REDIS_URL: redis://localhost:6379/0
+      AWS_REGION: us-east-1
+      S3_BUCKET: test-bucket
+      FIREBASE_PROJECT_ID: test-project
+      SECRET_KEY: test-secret
+      ADMIN_EMAILS: ""
+      ENV: test
+    defaults:
+      run: { working-directory: backend }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
+          pip install ruff pytest-cov
+      - name: Lint (syntax errors + undefined names)
+        run: ruff check . --select E9,F63,F7,F82
+      - name: Migration test (real Postgres + pgvector)
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:test@localhost:5432/test
+        run: alembic upgrade head
+      - name: Tests + coverage
+        # Phase 1 floor = 70%; raise to 80 after Phase 3 adds
+        # face-processing / matching / migration coverage.
+        run: pytest --cov=app --cov-report=term-missing --cov-fail-under=70
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: frontend }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  docker-build:
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -f backend/Dockerfile -t wedfind-backend:ci .

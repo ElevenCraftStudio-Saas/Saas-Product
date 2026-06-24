@@ -4,7 +4,17 @@ Forces a local SQLite DB (set BEFORE importing the app so app.database binds
 to it), mocks S3 + the face engine, and provides auth-override helpers.
 """
 import os
-os.environ["DATABASE_URL"] = "sqlite:///./test_wedfind.db"  # before app import
+# Provide a full, valid environment BEFORE importing the app so the fail-fast
+# pydantic Settings validates. SQLite is used explicitly for the test DB.
+os.environ.setdefault("DATABASE_URL", "sqlite:///./test_wedfind.db")
+os.environ["DATABASE_URL"] = "sqlite:///./test_wedfind.db"
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+os.environ.setdefault("AWS_REGION", "us-east-1")
+os.environ.setdefault("S3_BUCKET", "test-bucket")
+os.environ.setdefault("FIREBASE_PROJECT_ID", "test-project")
+os.environ.setdefault("SECRET_KEY", "test-secret")
+os.environ.setdefault("ADMIN_EMAILS", "")
+os.environ.setdefault("ENV", "test")
 
 import pytest
 from fastapi.testclient import TestClient

@@ -2,6 +2,8 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from slowapi.errors import RateLimitExceeded
@@ -12,8 +14,10 @@ import logging
 
 from fastapi.staticfiles import StaticFiles
 
+from .config import settings
 from .database import get_db, SessionLocal
 from .core.limiter import limiter
+from .core.security import SecurityHeadersMiddleware
 from .routers import auth, events, photos, guest, admin
 from .services.s3_service import s3_service
 from .services.folder_watcher import watcher_manager
@@ -64,6 +68,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="WedFind AI API", lifespan=lifespan)
 
+# Security headers on every response; force HTTPS in production only.
+app.add_middleware(SecurityHeadersMiddleware)
+if settings.is_production:
+    app.add_middleware(HTTPSRedirectMiddleware)
+
 # Rate limiting (per-IP) via SlowAPI.
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -72,16 +81,15 @@ app.add_middleware(SlowAPIMiddleware)
 # Mount static files
 app.mount("/uploads", StaticFiles(directory=os.getenv("UPLOAD_DIR", "../uploads")), name="uploads")
 
-# Configure CORS. FRONTEND_URL may be a comma-separated list; common localhost
-# dev ports (3000/3001) are always allowed so a port bump doesn't break preflight.
-_frontend_env = os.getenv("FRONTEND_URL", "http://localhost:3000")
-_allowed_origins = sorted({
-    *[o.strip() for o in _frontend_env.split(",") if o.strip()],
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:3001",
-})
+# Configure CORS. FRONTEND_URL may be a comma-separated list. Localhost dev
+# origins are only added OUTSIDE production (avoid trusting them in prod).
+_allowed_origins = {o.strip() for o in settings.FRONTEND_URL.split(",") if o.strip()}
+if not settings.is_production:
+    _allowed_origins |= {
+        "http://localhost:3000", "http://localhost:3001",
+        "http://127.0.0.1:3000", "http://127.0.0.1:3001",
+    }
+_allowed_origins = sorted(_allowed_origins)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
@@ -103,25 +111,50 @@ def read_root():
     return {"message": "Welcome to WedFind AI API"}
 
 
-@app.get("/healthz", tags=["Health"])
-def healthz(db: Session = Depends(get_db)):
-    """Liveness + dependency check: PostgreSQL and S3."""
-    db_ok = False
-    s3_ok = False
+@app.get("/livez", tags=["Health"])
+def livez():
+    """Liveness: the process is up. No dependency checks (probe must not flap)."""
+    return {"status": "ok"}
+
+
+def _check_db(db: Session) -> bool:
     try:
         db.execute(text("SELECT 1"))
-        db_ok = True
+        return True
     except Exception:
-        logging.getLogger("wedfind").exception("healthz: DB check failed")
+        logging.getLogger("wedfind").exception("readyz: DB check failed")
+        return False
+
+
+def _check_redis() -> bool:
+    try:
+        import redis  # imported lazily so the web tier needn't hard-depend at import
+        client = redis.Redis.from_url(settings.REDIS_URL, socket_connect_timeout=2)
+        return bool(client.ping())
+    except Exception:
+        logging.getLogger("wedfind").exception("readyz: Redis check failed")
+        return False
+
+
+def _check_s3() -> bool:
     try:
         s3_service.s3_client.head_bucket(Bucket=s3_service.bucket_name)
-        s3_ok = True
+        return True
     except Exception:
-        logging.getLogger("wedfind").exception("healthz: S3 check failed")
+        logging.getLogger("wedfind").exception("readyz: S3 check failed")
+        return False
 
-    status = "ok" if (db_ok and s3_ok) else "degraded"
-    return {
-        "status": status,
-        "db": "ok" if db_ok else "error",
-        "s3": "ok" if s3_ok else "error",
-    }
+
+@app.get("/readyz", tags=["Health"])
+def readyz(db: Session = Depends(get_db)):
+    """Readiness: verify PostgreSQL, Redis and S3. Returns 503 when degraded."""
+    checks = {"db": _check_db(db), "redis": _check_redis(), "s3": _check_s3()}
+    ok = all(checks.values())
+    body = {"status": "ok" if ok else "degraded", **{k: ("ok" if v else "error") for k, v in checks.items()}}
+    return JSONResponse(body, status_code=200 if ok else 503)
+
+
+# Back-compat alias (kept so existing probes/scripts don't break).
+@app.get("/healthz", tags=["Health"])
+def healthz(db: Session = Depends(get_db)):
+    return readyz(db)

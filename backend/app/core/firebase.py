@@ -9,14 +9,19 @@ import os
 import json
 import time
 import urllib.request
+from datetime import timedelta
 
 import jwt
 from cryptography.x509 import load_pem_x509_certificate
-from dotenv import load_dotenv
 
-load_dotenv()
+from ..config import settings
 
-PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "saas-139a7")
+# Tolerate small clock drift between this host and Google's token-issue time.
+# Without leeway a token whose `iat`/`nbf` is a second ahead of the local clock
+# raises ImmatureSignatureError → spurious 401s.
+_LEEWAY = timedelta(seconds=30)
+
+PROJECT_ID = settings.FIREBASE_PROJECT_ID
 _CRED_PATH = os.getenv("FIREBASE_CREDENTIALS", "firebase-service-account.json")
 _CERT_URL = (
     "https://www.googleapis.com/robot/v1/metadata/x509/"
@@ -97,6 +102,7 @@ def verify_token(id_token: str) -> dict:
         algorithms=["RS256"],
         audience=PROJECT_ID,
         issuer=_ISSUER,
+        leeway=_LEEWAY,
     )
     if not claims.get("sub"):
         raise ValueError("Token missing subject")

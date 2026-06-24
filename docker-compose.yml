@@ -1,0 +1,45 @@
+# Local full stack. Copy backend/.env.example -> backend/.env and fill values.
+# (Phase 1: db + redis + api. worker/beat land in Phase 2 with Celery.)
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: wedfind
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: wedfind
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wedfind"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: [backend/.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://wedfind:dev@db:5432/wedfind
+      REDIS_URL: redis://redis:6379/0
+      ENV: development
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports: ["8000:8000"]
+    command: >
+      sh -c "alembic upgrade head &&
+             gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:8000"
+
+volumes:
+  pgdata: {}

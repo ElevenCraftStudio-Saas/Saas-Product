@@ -6,6 +6,7 @@ from ..database import get_db
 from ..models import models
 from ..core.firebase import verify_token
 from ..services import api_tokens
+from ..config import settings
 
 # Both optional: a request authenticates via EITHER a Firebase bearer token
 # (humans, web app) OR an X-API-Key (desktop ingest agent).
@@ -26,21 +27,27 @@ def _find_or_create_user(decoded: dict, db: Session) -> models.User:
     if not uid:
         raise _auth_exception()
 
+    email = decoded.get("email")
+    allowlisted = bool(email) and email.lower() in settings.admin_emails
+
     user = db.query(models.User).filter(models.User.firebase_uid == uid).first()
     if user:
+        # Allowlisted accounts are upgraded to admin on login (never demoted).
+        if allowlisted and user.role != "admin":
+            user.role = "admin"
+            db.commit()
+            db.refresh(user)
         return user
 
-    email = decoded.get("email")
     phone = decoded.get("phone_number")
-    # Open signup: every new Firebase login is provisioned as a studio 'user'
-    # immediately (no approval workflow). Admin is minted via the admin panel
-    # (promote) or scripts/make_admin.py for bootstrap.
+    # Open signup: every new Firebase login is provisioned immediately (no
+    # approval workflow). Email in ADMIN_EMAILS => admin, else => studio user.
     user = models.User(
         firebase_uid=uid,
         email=email,
         phone=phone,
         name=decoded.get("name") or email or phone or "User",
-        role="user",
+        role="admin" if allowlisted else "user",
     )
     db.add(user)
     db.commit()
