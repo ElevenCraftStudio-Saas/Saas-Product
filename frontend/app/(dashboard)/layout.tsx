@@ -19,7 +19,7 @@ export default function DashboardLayout({
 
   useEffect(() => {
     if (!loading && !user) { router.push('/login'); return; }
-    if (me && me.role !== 'user') router.push(me.role === 'admin' ? '/admin' : '/pending');
+    if (me && me.role !== 'user') router.push('/admin');
   }, [loading, user, me, router]);
 
   const handleLogout = async () => {

@@ -47,9 +47,9 @@ export default function LoginPage() {
   async function routeByRole() {
     try {
       const me = (await api.get('/auth/me')).data as { role: string };
-      router.push(me.role === 'admin' ? '/admin' : me.role === 'user' ? '/dashboard' : '/pending');
+      router.push(me.role === 'admin' ? '/admin' : '/dashboard');
     } catch {
-      router.push('/pending');
+      router.push('/dashboard');
     }
   }
 

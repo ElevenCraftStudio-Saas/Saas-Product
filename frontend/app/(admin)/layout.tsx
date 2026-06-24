@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import Link from 'next/link';
-import { ShieldCheck, LogOut, CreditCard, Settings } from 'lucide-react';
+import { ShieldCheck, LogOut, Users, KeyRound, ScrollText, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
 import { useMe } from '@/lib/hooks/me';
@@ -15,15 +15,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     if (!loading && !user) { router.push('/login'); return; }
-    if (me && me.role !== 'admin') router.push(me.role === 'user' ? '/dashboard' : '/pending');
+    if (me && me.role !== 'admin') router.push('/dashboard');
   }, [loading, user, me, router]);
 
   if (loading || !user || isLoading || !me || me.role !== 'admin') return null;
 
   const items = [
-    { href: '/admin', icon: ShieldCheck, label: 'Admin' },
-    { href: '/admin/billing', icon: CreditCard, label: 'Billing' },
-    { href: '/admin/settings', icon: Settings, label: 'Studio Settings' },
+    { href: '/admin/users', icon: Users, label: 'Users' },
+    { href: '/admin/tokens', icon: KeyRound, label: 'Agent Tokens' },
+    { href: '/admin/audit', icon: ScrollText, label: 'Audit Log' },
+    { href: '/admin/analytics', icon: BarChart3, label: 'Analytics' },
   ];
   return (
     <div className="flex h-screen bg-slate-50">

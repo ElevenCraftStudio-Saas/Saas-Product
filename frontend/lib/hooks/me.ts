@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 
 export interface MeUser {
   id: number;
-  role: 'admin' | 'user' | 'pending';
+  role: 'admin' | 'user';
   email: string | null;
   name: string | null;
   max_events: number | null;
