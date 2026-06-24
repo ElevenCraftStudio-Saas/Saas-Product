@@ -14,6 +14,7 @@ import logging
 from ..services.s3_service import s3_service
 from ..services.folder_watcher import watcher_manager
 from ..services import retention
+from ..core.limits import effective_event_limit
 from fastapi.responses import StreamingResponse
 from io import BytesIO, StringIO
 import csv
@@ -74,6 +75,16 @@ def create_event(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(require_user)
 ):
+    count = db.query(models.Event.id).filter(
+        models.Event.photographer_id == current_user.id
+    ).count()
+    limit = effective_event_limit(current_user)
+    if count >= limit:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Event limit reached ({count}/{limit}). Contact your admin to raise it.",
+        )
+
     slug = f"{slugify(event_in.title)}-{str(uuid.uuid4())[:8]}"
     
     # Generate QR Code URL
