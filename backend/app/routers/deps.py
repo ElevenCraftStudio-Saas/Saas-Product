@@ -32,16 +32,14 @@ def _find_or_create_user(decoded: dict, db: Session) -> models.User:
 
     email = decoded.get("email")
     phone = decoded.get("phone_number")
-    # Bootstrap: the very first user becomes studio (owner). Everyone after
-    # defaults to guest (least privilege); promote via /api/auth/promote.
-    is_first_user = db.query(models.User).count() == 0
-    role = "studio" if is_first_user else "guest"
+    # Invite-only: every new login starts as 'pending' (no access). An admin
+    # grants 'user'. The admin itself is minted only by scripts/make_admin.py.
     user = models.User(
         firebase_uid=uid,
         email=email,
         phone=phone,
         name=decoded.get("name") or email or phone or "User",
-        role=role,
+        role="pending",
     )
     db.add(user)
     db.commit()
@@ -80,8 +78,19 @@ def get_current_user(
     raise _auth_exception("Authentication required")
 
 
-def get_current_studio(current_user: models.User = Depends(get_current_user)) -> models.User:
-    """Require a studio/photographer account (dashboard endpoints)."""
-    if current_user.role != "studio":
+def require_user(current_user: models.User = Depends(get_current_user)) -> models.User:
+    """Require a studio user account (event/photo endpoints)."""
+    if current_user.role != "user":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Studio access required")
     return current_user
+
+
+def require_admin(current_user: models.User = Depends(get_current_user)) -> models.User:
+    """Require the admin account (all management endpoints)."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return current_user
+
+
+# Back-compat alias (all callers migrated to require_user/require_admin in Task 4).
+get_current_studio = require_user

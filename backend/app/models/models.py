@@ -19,7 +19,9 @@ class User(Base):
     name = Column(String)
     email = Column(String, unique=True, index=True, nullable=True)
     phone = Column(String, nullable=True)
-    role = Column(String, default="studio")  # "studio" or "guest"
+    role = Column(String, nullable=False, default="pending")  # admin | user | pending
+    max_events = Column(Integer, nullable=True)        # null = DEFAULT_EVENT_LIMIT
+    storage_limit_mb = Column(Integer, nullable=True)  # null = DEFAULT_STORAGE_LIMIT_MB
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     events = relationship("Event", back_populates="photographer")
@@ -54,6 +56,7 @@ class Photo(Base):
     storage_provider = Column(String, default="local") # "local" or "s3"
     storage_key = Column(String, nullable=True)
     processing_status = Column(String, default=ProcessingStatus.PENDING)
+    size_bytes = Column(Integer, nullable=True)  # bytes stored, for storage-quota accounting
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
 
     event = relationship("Event", back_populates="photos")

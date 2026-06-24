@@ -48,7 +48,7 @@ def _db_session():
     return SessionLocal()
 
 
-def make_user(role="studio", email="u@test.ai", firebase_uid="uid-1"):
+def make_user(role="user", email="u@test.ai", firebase_uid="uid-1"):
     db = _db_session()
     try:
         u = models.User(firebase_uid=firebase_uid, email=email, name=email, role=role)
@@ -60,35 +60,52 @@ def make_user(role="studio", email="u@test.ai", firebase_uid="uid-1"):
         db.close()
 
 
-@pytest.fixture
-def as_studio():
-    """Override auth deps to act as a studio user; returns the user."""
-    user = make_user(role="studio", email="studio@test.ai", firebase_uid="studio-uid")
-
+def _override_current(user):
     def _current():
         db = _db_session()
         try:
             return db.query(models.User).filter(models.User.id == user.id).first()
         finally:
             db.close()
+    return _current
 
-    app_main.app.dependency_overrides[deps.get_current_user] = _current
-    app_main.app.dependency_overrides[deps.get_current_studio] = _current
+
+@pytest.fixture
+def as_admin():
+    """Act as the admin; overrides admin + user gates (admin tests may hit user routes)."""
+    user = make_user(role="admin", email="admin@test.ai", firebase_uid="admin-uid")
+    cur = _override_current(user)
+    app_main.app.dependency_overrides[deps.get_current_user] = cur
+    app_main.app.dependency_overrides[deps.require_admin] = cur
+    app_main.app.dependency_overrides[deps.require_user] = cur
     return user
 
 
 @pytest.fixture
-def as_guest():
-    """Override auth: authenticated guest (studio-gated routes must 403)."""
-    user = make_user(role="guest", email="guest@test.ai", firebase_uid="guest-uid")
-
-    def _current():
-        db = _db_session()
-        try:
-            return db.query(models.User).filter(models.User.id == user.id).first()
-        finally:
-            db.close()
-
-    # get_current_user returns the guest; get_current_studio must still enforce role.
-    app_main.app.dependency_overrides[deps.get_current_user] = _current
+def as_user():
+    """Act as a studio user."""
+    user = make_user(role="user", email="user@test.ai", firebase_uid="user-uid")
+    cur = _override_current(user)
+    app_main.app.dependency_overrides[deps.get_current_user] = cur
+    app_main.app.dependency_overrides[deps.require_user] = cur
     return user
+
+
+@pytest.fixture
+def as_pending():
+    """Act as a pending (no-access) user; role gates must still 403."""
+    user = make_user(role="pending", email="pending@test.ai", firebase_uid="pending-uid")
+    cur = _override_current(user)
+    app_main.app.dependency_overrides[deps.get_current_user] = cur
+    return user
+
+
+# Back-compat aliases so not-yet-migrated tests keep importing; map to new roles.
+@pytest.fixture
+def as_studio(as_user):
+    return as_user
+
+
+@pytest.fixture
+def as_guest(as_pending):
+    return as_pending
