@@ -19,6 +19,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { toast } from 'sonner';
+import api from '@/lib/api';
 
 const formSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid email address.' }),
@@ -43,6 +44,15 @@ export default function LoginPage() {
     toast.error(msg);
   }
 
+  async function routeByRole() {
+    try {
+      const me = (await api.get('/auth/me')).data as { role: string };
+      router.push(me.role === 'admin' ? '/admin' : me.role === 'user' ? '/dashboard' : '/pending');
+    } catch {
+      router.push('/pending');
+    }
+  }
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
       setIsLoading(true);
@@ -53,7 +63,7 @@ export default function LoginPage() {
         await signInEmail(values.email, values.password);
         toast.success('Login successful!');
       }
-      router.push('/dashboard');
+      await routeByRole();
     } catch (error) {
       handleError(error);
     } finally {
@@ -66,7 +76,7 @@ export default function LoginPage() {
       setIsLoading(true);
       await signInGoogle();
       toast.success('Login successful!');
-      router.push('/dashboard');
+      await routeByRole();
     } catch (error) {
       handleError(error);
     } finally {

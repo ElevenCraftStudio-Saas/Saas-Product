@@ -56,7 +56,9 @@ export default function DashboardPage() {
       setOpen(false);
       refetch();
     } catch (error) {
-      toast.error('Failed to create event');
+      const detail = (error as { response?: { data?: { detail?: string } } })
+        .response?.data?.detail;
+      toast.error(detail || 'Failed to create event');
     }
   }
 

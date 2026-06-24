@@ -37,6 +37,12 @@ interface AdminUser {
   name: string | null;
   phone: string | null;
   role: string;
+  max_events: number | null;
+  storage_limit_mb: number | null;
+  event_count: number;
+  effective_limit: number;
+  effective_storage_limit_mb: number;
+  storage_used_mb: number;
   created_at: string;
 }
 interface Activity {
@@ -49,7 +55,7 @@ interface Activity {
 }
 
 export default function AdminPage() {
-  const [tab, setTab] = useState<Tab>('analytics');
+  const [tab, setTab] = useState<Tab>('users');
 
   return (
     <div className="space-y-6">
@@ -58,8 +64,8 @@ export default function AdminPage() {
       </h1>
 
       <div className="flex gap-2 border-b">
-        <TabBtn active={tab === 'analytics'} onClick={() => setTab('analytics')} icon={<BarChart3 className="w-4 h-4" />} label="Analytics" />
         <TabBtn active={tab === 'users'} onClick={() => setTab('users')} icon={<Users className="w-4 h-4" />} label="Users" />
+        <TabBtn active={tab === 'analytics'} onClick={() => setTab('analytics')} icon={<BarChart3 className="w-4 h-4" />} label="Analytics" />
         <TabBtn active={tab === 'activity'} onClick={() => setTab('activity')} icon={<ScrollText className="w-4 h-4" />} label="Audit Log" />
       </div>
 
@@ -158,13 +164,27 @@ function UsersTab() {
     queryKey: ['admin-users'],
     queryFn: async () => (await api.get('/admin/users')).data,
   });
+  const onErr = (e: unknown) =>
+    toast.error((e as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed');
   const setRole = useMutation({
     mutationFn: async ({ id, role }: { id: number; role: string }) =>
       (await api.patch(`/admin/users/${id}/role`, { role })).data,
     onSuccess: () => { toast.success('Role updated'); qc.invalidateQueries({ queryKey: ['admin-users'] }); },
-    onError: (e: unknown) =>
-      toast.error((e as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Failed'),
+    onError: onErr,
   });
+  const setLimit = useMutation({
+    mutationFn: async ({ id, max_events }: { id: number; max_events: number | null }) =>
+      (await api.patch(`/admin/users/${id}/limit`, { max_events })).data,
+    onSuccess: () => { toast.success('Event limit updated'); qc.invalidateQueries({ queryKey: ['admin-users'] }); },
+    onError: onErr,
+  });
+  const setStorage = useMutation({
+    mutationFn: async ({ id, storage_limit_mb }: { id: number; storage_limit_mb: number | null }) =>
+      (await api.patch(`/admin/users/${id}/storage`, { storage_limit_mb })).data,
+    onSuccess: () => { toast.success('Storage limit updated'); qc.invalidateQueries({ queryKey: ['admin-users'] }); },
+    onError: onErr,
+  });
+
   if (isLoading) return <Loader2 className="w-6 h-6 animate-spin" />;
   return (
     <Card>
@@ -174,7 +194,10 @@ function UsersTab() {
             <tr className="text-left text-slate-500 border-b">
               <th className="py-2 pr-4">User</th>
               <th className="py-2 px-2">Role</th>
-              <th className="py-2 px-2">Joined</th>
+              <th className="py-2 px-2">Events</th>
+              <th className="py-2 px-2">Event limit</th>
+              <th className="py-2 px-2">Storage</th>
+              <th className="py-2 px-2">Storage limit (MB)</th>
               <th className="py-2 px-2">Action</th>
             </tr>
           </thead>
@@ -182,25 +205,30 @@ function UsersTab() {
             {users?.map((u) => (
               <tr key={u.id} className="border-b last:border-0">
                 <td className="py-2 pr-4">
-                  <p className="font-medium">{u.name || u.email || u.phone || `#${u.id}`}</p>
-                  <p className="text-xs text-slate-400">{u.email || u.phone}</p>
+                  <p className="font-medium">{u.name || u.email || `#${u.id}`}</p>
+                  <p className="text-xs text-slate-400">{u.email}</p>
                 </td>
                 <td className="py-2 px-2">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${u.role === 'studio' ? 'bg-primary/10 text-primary' : 'bg-slate-100 text-slate-600'}`}>
-                    {u.role}
-                  </span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    u.role === 'admin' ? 'bg-amber-100 text-amber-700'
+                    : u.role === 'user' ? 'bg-primary/10 text-primary'
+                    : 'bg-slate-100 text-slate-600'}`}>{u.role}</span>
                 </td>
-                <td className="py-2 px-2 text-slate-400">{new Date(u.created_at).toLocaleDateString()}</td>
+                <td className="py-2 px-2 whitespace-nowrap">{u.event_count} / {u.effective_limit}</td>
                 <td className="py-2 px-2">
-                  {u.role === 'studio' ? (
-                    <Button size="sm" variant="outline" onClick={() => setRole.mutate({ id: u.id, role: 'guest' })} disabled={setRole.isPending}>
-                      Make guest
-                    </Button>
-                  ) : (
-                    <Button size="sm" onClick={() => setRole.mutate({ id: u.id, role: 'studio' })} disabled={setRole.isPending}>
-                      Make studio
-                    </Button>
-                  )}
+                  {u.role === 'admin' ? '—'
+                   : <NumEditor value={u.max_events} onSave={(v) => setLimit.mutate({ id: u.id, max_events: v })} disabled={setLimit.isPending} />}
+                </td>
+                <td className="py-2 px-2 whitespace-nowrap">{u.storage_used_mb} / {u.effective_storage_limit_mb} MB</td>
+                <td className="py-2 px-2">
+                  {u.role === 'admin' ? '—'
+                   : <NumEditor value={u.storage_limit_mb} onSave={(v) => setStorage.mutate({ id: u.id, storage_limit_mb: v })} disabled={setStorage.isPending} />}
+                </td>
+                <td className="py-2 px-2">
+                  {u.role === 'admin' ? '—'
+                   : u.role === 'user'
+                    ? <Button size="sm" variant="outline" onClick={() => setRole.mutate({ id: u.id, role: 'pending' })} disabled={setRole.isPending}>Revoke</Button>
+                    : <Button size="sm" onClick={() => setRole.mutate({ id: u.id, role: 'user' })} disabled={setRole.isPending}>Grant user</Button>}
                 </td>
               </tr>
             ))}
@@ -208,6 +236,23 @@ function UsersTab() {
         </table>
       </CardContent>
     </Card>
+  );
+}
+
+function NumEditor({ value, onSave, disabled }: { value: number | null; onSave: (v: number | null) => void; disabled: boolean }) {
+  const [v, setV] = useState<string>(value === null ? '' : String(value));
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="number" min={0} value={v} placeholder="default"
+        onChange={(e) => setV(e.target.value)}
+        className="h-8 w-24 rounded-md border border-input px-2 text-sm"
+      />
+      <Button size="sm" variant="outline" disabled={disabled}
+        onClick={() => onSave(v.trim() === '' ? null : Math.max(0, parseInt(v, 10) || 0))}>
+        Save
+      </Button>
+    </div>
   );
 }
 

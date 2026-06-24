@@ -3,9 +3,10 @@
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import Link from 'next/link';
-import { Camera, LayoutDashboard, Calendar, LogOut, Menu, KeyRound, ShieldCheck } from 'lucide-react';
+import { Camera, LayoutDashboard, Calendar, LogOut, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
+import { useMe } from '@/lib/hooks/me';
 
 export default function DashboardLayout({
   children,
@@ -14,20 +15,20 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const { user, loading, signOut } = useAuth();
+  const { data: me, isLoading: meLoading } = useMe();
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.push('/login');
-    }
-  }, [loading, user, router]);
+    if (!loading && !user) { router.push('/login'); return; }
+    if (me && me.role !== 'user') router.push(me.role === 'admin' ? '/admin' : '/pending');
+  }, [loading, user, me, router]);
 
   const handleLogout = async () => {
     await signOut();
     router.push('/login');
   };
 
-  if (loading || !user) {
-    return null; // Avoid flashing dashboard before auth resolves
+  if (loading || !user || meLoading || !me || me.role !== 'user') {
+    return null; // Avoid flashing dashboard before auth/role resolves
   }
 
   return (
@@ -51,18 +52,6 @@ export default function DashboardLayout({
             <Button variant="ghost" className="w-full justify-start space-x-2">
               <Calendar className="w-5 h-5" />
               <span>Events</span>
-            </Button>
-          </Link>
-          <Link href="/admin">
-            <Button variant="ghost" className="w-full justify-start space-x-2">
-              <ShieldCheck className="w-5 h-5" />
-              <span>Admin</span>
-            </Button>
-          </Link>
-          <Link href="/settings">
-            <Button variant="ghost" className="w-full justify-start space-x-2">
-              <KeyRound className="w-5 h-5" />
-              <span>API Keys</span>
             </Button>
           </Link>
         </nav>
