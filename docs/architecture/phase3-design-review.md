@@ -120,8 +120,8 @@ No table rewrites. No long-held locks if the NOT VALID + VALIDATE technique is u
 
 ---
 
-## Decisions for reviewer
-1. **Logging lib:** structlog (recommended, contextvar correlation id) vs python-json-logger (lighter)?
-2. **`/metrics` exposure:** internal-network-only no-auth (recommended) vs behind an admin token?
-3. **FK migration technique:** `NOT VALID` + `VALIDATE` (recommended, minimal lock) vs plain `ADD CONSTRAINT` (simpler, longer lock)?
-4. **Coverage gate target this phase:** 80% (spec) vs a softer 75% first then 80% after the pg/celery suites are stable in CI?
+## Decisions (approved 2026-06-24)
+1. **Logging:** **structlog** → JSON + contextvar correlation id.
+2. **`/metrics`:** **internal-network only, no auth.**
+3. **FK migration:** **`NOT VALID` + `VALIDATE`** (minimal lock).
+4. **Coverage gate:** **75% now**, raise to 80% once the pg/celery marked suites are stable in CI.

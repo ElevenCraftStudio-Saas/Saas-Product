@@ -31,7 +31,8 @@ def test_dispatch_uses_celery_when_enabled(monkeypatch):
     monkeypatch.setattr(settings, "USE_CELERY", True)
     calls = {}
     import app.workers.face_tasks as ft
-    monkeypatch.setattr(ft.process_photo, "delay", lambda pid: calls.setdefault("id", pid))
+    monkeypatch.setattr(ft.process_photo, "apply_async",
+                        lambda args=None, headers=None: calls.setdefault("id", args[0]))
     dispatch.enqueue_process_photo(123)
     assert calls["id"] == 123
 

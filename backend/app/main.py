@@ -18,18 +18,17 @@ from .config import settings
 from .database import get_db, SessionLocal
 from .core.limiter import limiter
 from .core.security import SecurityHeadersMiddleware
+from .core.request_id import RequestIDMiddleware
+from .core.logging_config import configure_logging
+from .core.observability import init_sentry
 from .routers import auth, events, photos, guest, admin
 from .services.s3_service import s3_service
 from .services.folder_watcher import watcher_manager
 from .services import retention
 
-# Make application loggers (wedfind.*) visible — uvicorn only configures its own
-# loggers, so without this our S3/upload/audit logs are silently dropped.
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
-logging.getLogger("wedfind").setLevel(logging.INFO)
+# Structured JSON logging (request-id aware) + Sentry (no-op without a DSN).
+configure_logging()
+init_sentry()
 
 # NOTE: schema is now managed by Alembic migrations (`alembic upgrade head`),
 # not Base.metadata.create_all().
@@ -101,6 +100,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Added LAST → outermost: binds the request id before any other middleware runs.
+app.add_middleware(RequestIDMiddleware)
 
 # Include routers (legacy match.py removed — guest flow supersedes it)
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])

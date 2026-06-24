@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     ENV: str = "production"  # set ENV=development|test to relax HTTPS redirect
     # When false, ingest falls back to FastAPI BackgroundTasks/threads (rollback path).
     USE_CELERY: bool = True
+    LOG_JSON: bool = True       # structured JSON logs; false = console (dev)
+    ENABLE_METRICS: bool = True  # expose /metrics
 
     @property
     def admin_emails(self) -> set[str]:

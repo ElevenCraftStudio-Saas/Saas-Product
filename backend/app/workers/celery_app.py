@@ -13,8 +13,12 @@ from datetime import timedelta
 
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import task_prerun
 
 from ..config import settings
+from ..core.logging_config import configure_logging
+from ..core.observability import init_sentry
+from ..core.request_id import bind_request_id
 
 celery_app = Celery(
     "wedfind",
@@ -51,6 +55,18 @@ celery_app.conf.update(
         },
     },
 )
+
+
+# Workers get the same JSON logging + Sentry as the web tier.
+configure_logging()
+init_sentry(celery=True)
+
+
+@task_prerun.connect
+def _bind_request_id(task=None, **_):
+    """Bind the propagated request id so worker logs correlate with the web request."""
+    headers = getattr(getattr(task, "request", None), "headers", None) or {}
+    bind_request_id(headers.get("request_id"))
 
 
 @celery_app.task(name="app.workers.ping")

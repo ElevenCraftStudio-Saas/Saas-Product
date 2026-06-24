@@ -54,6 +54,7 @@ def test_thumbnail_dispatch_celery(monkeypatch):
     monkeypatch.setattr(settings, "USE_CELERY", True)
     calls = {}
     import app.workers.thumb_tasks as tt
-    monkeypatch.setattr(tt.make_thumbnail, "delay", lambda pid: calls.setdefault("id", pid))
+    monkeypatch.setattr(tt.make_thumbnail, "apply_async",
+                        lambda args=None, headers=None: calls.setdefault("id", args[0]))
     dispatch.enqueue_make_thumbnail(42)
     assert calls["id"] == 42
