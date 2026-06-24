@@ -2,12 +2,26 @@
 from app.database import SessionLocal
 from app.models import models
 from app.services import activity, photo_ingest
+from tests.conftest import make_user
 
 
 def _create_event(client):
     return client.post(
         "/api/events/", json={"title": "Wedding", "event_date": "2026-09-01T00:00:00Z"}
     ).json()
+
+
+def _other_users_event_with_activity():
+    """Seed an event owned by a DIFFERENT user (not the admin) + one activity row."""
+    owner = make_user(role="user", email="other@test.ai", firebase_uid="other-uid")
+    db = SessionLocal()
+    try:
+        e = models.Event(title="OtherWedding", event_slug="other-1", photographer_id=owner.id)
+        db.add(e); db.commit(); db.refresh(e)
+        activity.log_activity(db, activity.EVENT_VIEWED, event_id=e.id, ip_address="2.2.2.2")
+        return e.id
+    finally:
+        db.close()
 
 
 # ---- user management ----
@@ -58,6 +72,20 @@ def test_activity_global(client, as_admin):
     r = client.get("/api/admin/activity")
     assert r.status_code == 200
     assert any(a["action"] == "EVENT_VIEWED" for a in r.json())
+
+
+def test_activity_includes_other_users_events(client, as_admin):
+    eid = _other_users_event_with_activity()
+    r = client.get("/api/admin/activity")
+    assert r.status_code == 200
+    assert any(a["event_id"] == eid for a in r.json())  # admin sees events it doesn't own
+
+
+def test_analytics_includes_other_users_events(client, as_admin):
+    eid = _other_users_event_with_activity()
+    r = client.get("/api/admin/analytics")
+    assert r.status_code == 200
+    assert any(e["event_id"] == eid for e in r.json()["per_event"])
 
 
 # ---- analytics (global) ----

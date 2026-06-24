@@ -58,5 +58,6 @@ Non-admin → 403 is asserted by automated tests:
 Full backend suite: **65 tests pass**.
 
 ## Residual notes (for follow-up, not blocking this change)
-- `/settings` page (API-keys UI) still exists under the studio `(dashboard)` group but is unlinked; its API calls now 403 for a `user`. Consider removing or moving it into the admin area.
+- The old studio `/settings` API-keys page was **removed** (token management is admin-only now); agent-token UI for the admin area is a follow-up.
 - Server-side folder-watch reads the backend host filesystem (admin-gated, but cloud deploys should rely on the desktop agent).
+- The Alembic `upgrade()` (column adds + Postgres `CHECK ck_users_role` + `remap_roles`) is not run by the SQLite test harness — run `alembic upgrade head` once against a Postgres copy before deploy. The remap logic itself is unit-tested in `test_role_remap.py`.

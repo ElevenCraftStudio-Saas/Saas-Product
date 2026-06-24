@@ -23,3 +23,25 @@ def test_pending_cannot_create_event(client, as_pending):
     r = client.post("/api/events/", json={"title": "E", "description": "d", "event_date": "2026-07-01T00:00:00"})
     assert r.status_code == 403
     assert r.json()["detail"] == "Studio access required"
+
+
+# Admin-gated event sub-routes must 403 for a studio user (these lost their
+# ownership filter when re-gated to require_admin — confirm no user access).
+def test_user_blocked_from_event_privacy(client, as_user):
+    assert client.get("/api/events/1/privacy").status_code == 403
+
+
+def test_user_blocked_from_retention(client, as_user):
+    assert client.patch("/api/events/1/retention", json={"retention_days": 5}).status_code == 403
+
+
+def test_user_blocked_from_consents(client, as_user):
+    assert client.get("/api/events/1/consents").status_code == 403
+
+
+def test_user_blocked_from_rescan_all(client, as_user):
+    assert client.post("/api/events/1/rescan-all").status_code == 403
+
+
+def test_pending_blocked_from_admin_analytics(client, as_pending):
+    assert client.get("/api/admin/analytics").status_code == 403
