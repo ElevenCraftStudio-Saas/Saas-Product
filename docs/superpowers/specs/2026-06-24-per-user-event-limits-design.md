@@ -1,83 +1,103 @@
-# Admin/Studio Separation + Per-User Event Limits — Design
+# Admin/User Role Separation + Quotas — Design
 
-**Date:** 2026-06-24
-**Goal:** Open the app to real-time test users. Add a real admin role with its own page (manage users, set event limits, view analytics/audit), separate from the studio user page. Cap how many events each studio can create.
+**Date:** 2026-06-24 (revised)
+**Goal:** Enforce hard role separation between a single **admin** and **studio users**. Users never see or reach admin functionality (UI or API). Admin controls users, roles, event/storage quotas, tokens, folder-watch, privacy/audit. New signups are invite-only.
 
-## Decisions (from brainstorming)
+## Decisions (locked)
 
-- **Roles:** `admin`, `studio`, `guest`.
-- **Bootstrap:** the **first user becomes `admin`** (was `studio`). Everyone after = `guest` (least privilege). Admin promotes guests → studio.
-- **Separate pages:** admin-only `/admin` area; studio-only `/dashboard` area. Role-gated, not just auth-gated.
-- **Event limit:** per-user cap on studios, admin-settable, with a global default.
-- **Default limit:** `2` events per new studio. No "unlimited" concept — admin sets a big number if needed.
-- **Enforcement:** block event creation with `HTTP 403` + message telling the user to contact the admin.
-- **Deployment:** deferred. User will host on a subdomain once ready; a deploy guide is delivered at the end (not built now).
+- **Roles:** `admin`, `user`, `pending`.
+  - `admin` — full control (one designated admin; minted only by the `make_admin` CLI / migration seed).
+  - `user` — studio photographer: create/manage own events, upload photos, view guest matches, download, view own profile.
+  - `pending` — logged in but **no access** (invite-only holding state). Sees a "pending approval" screen only.
+  - **Anonymous guests** (event-link visitors) keep the login-free public flow — no `User` row.
+- **No auto-admin / no privilege escalation.** Remove the "first user becomes studio" bootstrap. New Firebase logins are created as `pending`. Admin is granted **only** by `scripts/make_admin.py` (ops, once) or by an existing admin via the promote/role endpoints.
+- **Default new-signup role:** `pending` (invite-only).
+- **Event quota:** per-user `max_events`, admin-settable, default `DEFAULT_EVENT_LIMIT=2`.
+- **Storage quota:** per-user `storage_limit_mb`, admin-settable, default `DEFAULT_STORAGE_LIMIT_MB=2048`. Enforced at ingest by summing `Photo.size_bytes` for the user's events.
+- **Deferred (placeholder admin-only pages, not built):** billing/subscription, studio settings, event-assignment to users. These render an admin-only "coming soon" page; no backend.
+- **Role column:** stored as a constrained `String` (values `admin`/`user`/`pending`) validated in app + a DB CHECK constraint — not a native PG ENUM (keeps SQLite tests + Alembic downgrades simple). Functionally equivalent to the requested `Enum`.
 
-## Roles & auth (backend)
+## Backend authorization
 
 `deps.py`:
-- `_find_or_create_user`: first user (`count() == 0`) → `role="admin"`, else `role="guest"`.
-- New dependency `get_current_admin`: requires `role == "admin"`, else `403 "Admin access required"`.
-- `get_current_studio` unchanged (`role == "studio"`).
+- `_find_or_create_user`: new users → `role="pending"` (was first-user→studio). No count-based bootstrap.
+- `require_admin(current_user)` → 403 `{"detail": "Admin access required"}` unless `role == "admin"`.
+- `require_user(current_user)` → 403 `{"detail": "Studio access required"}` unless `role == "user"`. (Replaces `get_current_studio`; admins are NOT users — admin manages, doesn't create events.)
 
-`User` model gains:
+**Endpoint gating:**
+- `require_admin`: all `/api/admin/*`; `/api/auth/promote`; `/api/auth/tokens` (create/list/revoke); `/api/events/{id}/watch-folders*` + `rescan*`; `/api/events/{id}/privacy` + `retention` + `consents` + `consents/export`.
+- `require_user`: `POST/GET /api/events/`, `GET/DELETE /api/events/{id}`, `POST /api/photos/upload/{id}` (also accepts `X-API-Key` agent), `GET /api/photos/event/{id}`.
+- Public: `/api/guest/*`, `/healthz`.
+- `/api/auth/me`: any authenticated user (incl `pending`) — returns role so the frontend can route.
+
+## Data model
+
+`User`:
 ```python
-max_events = Column(Integer, nullable=True)  # null = DEFAULT_EVENT_LIMIT; int = explicit cap
+role = Column(String, nullable=False, default="pending")  # admin | user | pending (CHECK-constrained)
+max_events = Column(Integer, nullable=True)        # null = DEFAULT_EVENT_LIMIT
+storage_limit_mb = Column(Integer, nullable=True)  # null = DEFAULT_STORAGE_LIMIT_MB
 ```
-Alembic migration adds the nullable column. No backfill.
-
-## Global default
-
-- Env var `DEFAULT_EVENT_LIMIT` (default `2`).
-- Helper: `effective_event_limit(user) -> int = user.max_events if user.max_events is not None else DEFAULT_EVENT_LIMIT`.
-
-## Event-create enforcement (studio)
-
-In `create_event` ([events.py](../../../backend/app/routers/events.py)), before creating:
+`Photo`:
 ```python
-count = db.query(models.Event.id).filter(models.Event.photographer_id == current_user.id).count()
-limit = effective_event_limit(current_user)
-if count >= limit:
-    raise HTTPException(403, f"Event limit reached ({count}/{limit}). Contact your admin to raise it.")
+size_bytes = Column(Integer, nullable=True)  # bytes stored, for storage-quota accounting
 ```
 
-## Admin API ([admin.py](../../../backend/app/routers/admin.py)) — re-gated to `get_current_admin`
+**Migration (`e4f5a6b7c8d9`):**
+1. Add `users.max_events`, `users.storage_limit_mb`, `photos.size_bytes` (all nullable).
+2. Add CHECK constraint `role IN ('admin','user','pending')`.
+3. **Data remap (safe, deterministic, exactly one admin):**
+   - Lowest-`id` user → `admin`.
+   - All other rows with old role `studio` → `user`.
+   - All other rows with old role `guest` → `pending` (preserves "no access" — guest had none).
 
-- `GET /api/admin/users` → each user includes `role`, `max_events`, `event_count`, `effective_limit`.
-- `PATCH /api/admin/users/{id}/role` → promote/demote between `studio` and `guest`. Cannot demote self; cannot change an `admin` row (guard).
-- `PATCH /api/admin/users/{id}/limit` → body `{max_events: int|null}`, validate null or `>= 0`.
-- `GET /api/admin/activity` and `GET /api/admin/analytics` → **global** (all events), since admin owns none. (Previously scoped to caller's own events.)
+## Helpers
 
-Schemas ([schemas.py](../../../backend/app/schemas/schemas.py)): extend `UserResponse` (role, max_events, event_count, effective_limit); add `EventLimitUpdate { max_events: Optional[int] }`.
+`app/core/limits.py`:
+- `DEFAULT_EVENT_LIMIT = int(env "DEFAULT_EVENT_LIMIT", 2)`
+- `DEFAULT_STORAGE_LIMIT_MB = int(env "DEFAULT_STORAGE_LIMIT_MB", 2048)`
+- `effective_event_limit(user) -> int`
+- `effective_storage_limit_mb(user) -> int`
+- `user_storage_used_bytes(db, user) -> int` (sum `Photo.size_bytes` over the user's events)
 
-## Frontend — role-gated separate areas
+## Enforcement
 
-- **Expose role:** add `useMe()` React Query hook hitting `GET /api/auth/me`; returns backend user incl. `role`. Used by layouts + login redirect.
+- **Event create** (`events.py create_event`): `count >= effective_event_limit` → 403 `Event limit reached ({count}/{limit}). Contact your admin to raise it.`
+- **Photo ingest** (`photo_ingest.ingest_photo_bytes`): set `Photo.size_bytes = len(data)`; if `used + len(data) > limit*1024*1024` → 403 `Storage limit reached. Contact your admin.` (raised before S3 upload to avoid orphan objects).
+
+## Admin API (`admin.py`, all `require_admin`)
+
+- `GET /users` → `AdminUserResponse[]` with `role, max_events, storage_limit_mb, event_count, effective_limit, effective_storage_limit_mb, storage_used_mb`.
+- `PATCH /users/{id}/role` → body `{role}` in `{user, pending}`; cannot change an `admin` row (400).
+- `PATCH /users/{id}/limit` → `{max_events: int|null}` (null or ≥0).
+- `PATCH /users/{id}/storage` → `{storage_limit_mb: int|null}` (null or ≥0).
+- `GET /activity`, `GET /analytics` → global (admin sees all).
+
+## Frontend (role-based separation)
+
+- `useMe()` hook → `/auth/me` returns `{id, role, ...}`.
 - **Route groups:**
-  - `app/(admin)/admin/...` — own layout, guard `role === "admin"` (else redirect). Moves the existing admin page out of `(dashboard)`.
-  - `app/(dashboard)/...` — studio area, guard `role === "studio"` (currently auth-only). Remove the Admin nav link from the studio sidebar.
-- **Login redirect** ([login/page.tsx](../../../frontend/app/(auth)/login/page.tsx)): after sign-in, fetch me → `admin` → `/admin`, `studio` → `/dashboard`, `guest` → a "pending access — contact admin" screen.
-- **Admin page:** user table with role badge, promote/demote, editable `max_events` (blank = default), usage `event_count / effective_limit`; plus analytics + audit log (already built, now admin-only).
-- **Studio dashboard:** events list + create (catch `403` → `sonner` toast with the contact-admin message), settings/API keys.
+  - `(admin)/admin/...` — guard `role==='admin'`. Nav: Dashboard, Users, Event/Storage limits, API Tokens, Audit, Analytics, Folder-watch, Billing (placeholder), Settings (placeholder).
+  - `(dashboard)/...` — guard `role==='user'`. Nav: Dashboard, Events, Photos, Guests, Profile. **No admin items rendered at all** (not hidden via CSS — not rendered).
+  - `pending` users → `/pending` screen.
+- **Login redirect:** `admin → /admin`, `user → /dashboard`, `pending → /pending`.
+- Admin user table: role toggle (user↔pending), event-limit editor, storage-limit editor, usage columns.
+- Create-event / upload failures surface the backend 403 detail as a toast.
+- API Tokens UI + folder-watch UI move into the admin area (removed from user dashboard).
 
-## Testing (pytest)
+## Security review (deliverable)
 
-- Bootstrap: first user = admin; second = guest.
-- `get_current_admin` gate: admin passes; studio/guest → 403.
-- Event create: allowed under limit; 403 at/over limit (message); `null` → default 2.
-- `PATCH /limit`: updates; validates `>= 0`; admin-only.
-- `PATCH /role`: promote guest→studio; can't demote self/admin.
-- `GET /users`: returns role, event_count, effective_limit.
-- Admin analytics/activity: global across events.
+After build, produce a table of every admin route × dependency gate confirming `require_admin`, plus confirmation that no admin data is reachable with a `user`/`pending` token (covered by tests).
 
-## Deployment guide (delivered at end, not built)
+## Testing
 
-- **Frontend → Vercel** (Next 16, auto-HTTPS for selfie camera). Point subdomain (e.g. `app.<domain>`) via CNAME.
-- **Backend → AWS Lightsail/EC2 in us-east-1** (same VPC as RDS → private DB access, no public exposure; ≥2GB RAM for InsightFace). Subdomain `api.<domain>` via A record + HTTPS (Caddy/Nginx). Set `NEXT_PUBLIC_API_URL=https://api.<domain>/api`, `FRONTEND_URL=https://app.<domain>` for CORS.
-- Alt backend: Railway/Fly.io (2GB) — faster, RDS stays public (keep SG rule).
+- Migration remap: lowest-id→admin, studio→user, guest→pending; exactly one admin.
+- `require_admin`/`require_user` gates: admin/user/pending matrix → 200/403 with exact detail strings.
+- New signup → `pending`; no auto-admin.
+- Event quota + storage quota enforcement (under/at/over; storage raises before S3).
+- Admin role/limit/storage PATCH; cannot demote admin.
+- `GET /users` payload fields.
+- Frontend: manual checks — user never sees admin nav; `/admin` as user redirects; pending sees pending screen.
 
 ## Out of scope
-
-- Multi-tenant org structures, billing.
-- Photo/storage quotas.
-- Self-service guest→studio signup (admin promotes manually).
+Billing system, storage usage trends, event-assignment relation, multi-tenant orgs, self-service signup approval flows beyond a manual admin grant.
