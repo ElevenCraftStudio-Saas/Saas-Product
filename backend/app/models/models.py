@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Float, JSON, Enum, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Float, JSON, Enum, Boolean, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import datetime
@@ -41,7 +41,7 @@ class Event(Base):
     retention_days = Column(Integer, nullable=True)
     consent_text = Column(String, nullable=True)  # custom consent wording for this event
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    photographer_id = Column(Integer, ForeignKey("users.id"))
+    photographer_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
 
     photographer = relationship("User", back_populates="events")
     photos = relationship("Photo", back_populates="event", cascade="all, delete-orphan")
@@ -50,7 +50,7 @@ class Photo(Base):
     __tablename__ = "photos"
 
     id = Column(Integer, primary_key=True, index=True)
-    event_id = Column(Integer, ForeignKey("events.id"), index=True)
+    event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"), index=True)
     filename = Column(String)
     filepath = Column(String)
     storage_provider = Column(String, default="local") # "local" or "s3"
@@ -68,8 +68,8 @@ class FaceEmbedding(Base):
     __tablename__ = "face_embeddings"
 
     id = Column(Integer, primary_key=True, index=True)
-    photo_id = Column(Integer, ForeignKey("photos.id"), index=True)
-    event_id = Column(Integer, ForeignKey("events.id"), index=True, nullable=True)  # denormalized for event-scoped KNN
+    photo_id = Column(Integer, ForeignKey("photos.id", ondelete="CASCADE"), index=True)
+    event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"), index=True, nullable=True)  # denormalized for event-scoped KNN
     embedding = Column(JSON)  # Store list of floats
     face_box = Column(JSON)   # Store [x1, y1, x2, y2]
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -80,7 +80,7 @@ class Download(Base):
     __tablename__ = "downloads"
 
     id = Column(Integer, primary_key=True, index=True)
-    photo_id = Column(Integer, ForeignKey("photos.id"))
+    photo_id = Column(Integer, ForeignKey("photos.id", ondelete="CASCADE"), index=True)
     ip_address = Column(String, nullable=True)
     downloaded_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -91,12 +91,14 @@ class GuestConsent(Base):
     __tablename__ = "guest_consents"
 
     id = Column(Integer, primary_key=True, index=True)
-    event_id = Column(Integer, ForeignKey("events.id"), index=True)
+    event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"), index=True)
     ip_address = Column(String, nullable=True)
     consent_version = Column(String, default="1.0")
     consent_text = Column(String, nullable=True)   # exact wording the guest agreed to (proof)
     user_agent = Column(String, nullable=True)     # extra evidence
     consent_timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_consents_event_ip", "event_id", "ip_address"),)
 
 
 class ActivityLog(Base):
@@ -104,11 +106,13 @@ class ActivityLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     action = Column(String, index=True)  # EVENT_VIEWED, SELFIE_UPLOADED, FACE_MATCH_COMPLETED, PHOTO_DOWNLOADED
-    event_id = Column(Integer, ForeignKey("events.id"), nullable=True, index=True)
-    photo_id = Column(Integer, ForeignKey("photos.id"), nullable=True)
+    event_id = Column(Integer, ForeignKey("events.id", ondelete="SET NULL"), nullable=True, index=True)
+    photo_id = Column(Integer, ForeignKey("photos.id", ondelete="SET NULL"), nullable=True)
     ip_address = Column(String, nullable=True)
     detail = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_activity_event_created", "event_id", "created_at"),)
 
 
 class ApiToken(Base):
@@ -116,7 +120,7 @@ class ApiToken(Base):
     __tablename__ = "api_tokens"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name = Column(String)                 # human label (e.g. "Studio laptop")
     token_prefix = Column(String, index=True)  # first chars, for display + lookup
     token_hash = Column(String, unique=True)   # sha256 of the full token
@@ -131,7 +135,7 @@ class FolderWatch(Base):
     __tablename__ = "folder_watches"
 
     id = Column(Integer, primary_key=True, index=True)
-    event_id = Column(Integer, ForeignKey("events.id"), index=True)  # multiple folders per event
+    event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"), index=True)  # multiple folders per event
     folder_path = Column(String, nullable=False)
     enabled = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
