@@ -144,6 +144,8 @@ async def match_selfie(
 
         # 5. Match — STRICTLY within this event only (pgvector on PG, else Python).
         matched_ids = match_event(db, event.id, guest_embedding, MATCH_THRESHOLD)
+        from ..core.metrics import selfie_matches_total
+        selfie_matches_total.labels("yes" if matched_ids else "no").inc()
         matched_photos = (
             db.query(models.Photo).filter(models.Photo.id.in_(matched_ids)).all()
             if matched_ids else []

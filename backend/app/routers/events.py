@@ -15,6 +15,7 @@ from ..services.s3_service import s3_service
 from ..services.folder_watcher import watcher_manager
 from ..services import retention
 from ..core.limits import effective_event_limit
+from ..core.metrics import quota_rejections_total
 from fastapi.responses import StreamingResponse
 from io import BytesIO, StringIO
 import csv
@@ -80,6 +81,7 @@ def create_event(
     ).count()
     limit = effective_event_limit(current_user)
     if count >= limit:
+        quota_rejections_total.labels("event").inc()
         raise HTTPException(
             status_code=403,
             detail=f"Event limit reached ({count}/{limit}). Contact your admin to raise it.",

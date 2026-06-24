@@ -11,14 +11,17 @@ Run beat (exactly one replica):
 """
 from datetime import timedelta
 
+import time
+
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import task_prerun
+from celery.signals import task_prerun, task_postrun
 
 from ..config import settings
 from ..core.logging_config import configure_logging
 from ..core.observability import init_sentry
 from ..core.request_id import bind_request_id
+from ..core.metrics import celery_tasks_total, celery_task_duration_seconds
 
 celery_app = Celery(
     "wedfind",
@@ -62,11 +65,25 @@ configure_logging()
 init_sentry(celery=True)
 
 
+_task_starts: dict[str, float] = {}
+
+
 @task_prerun.connect
-def _bind_request_id(task=None, **_):
+def _bind_request_id(task=None, task_id=None, **_):
     """Bind the propagated request id so worker logs correlate with the web request."""
     headers = getattr(getattr(task, "request", None), "headers", None) or {}
     bind_request_id(headers.get("request_id"))
+    if task_id:
+        _task_starts[task_id] = time.monotonic()
+
+
+@task_postrun.connect
+def _record_metrics(task=None, task_id=None, state=None, **_):
+    name = getattr(task, "name", "unknown")
+    celery_tasks_total.labels(name, (state or "unknown").lower()).inc()
+    start = _task_starts.pop(task_id, None)
+    if start is not None:
+        celery_task_duration_seconds.labels(name).observe(time.monotonic() - start)
 
 
 @celery_app.task(name="app.workers.ping")

@@ -71,6 +71,8 @@ def ingest_photo_bytes(
         limit_bytes = effective_storage_limit_mb(owner) * 1024 * 1024
         used = user_storage_used_bytes(db, owner)
         if used + len(content) > limit_bytes:
+            from ..core.metrics import quota_rejections_total
+            quota_rejections_total.labels("storage").inc()
             raise HTTPException(
                 status_code=403,
                 detail="Storage limit reached. Contact your admin to raise it.",

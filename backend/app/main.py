@@ -104,6 +104,11 @@ app.add_middleware(
 # Added LAST → outermost: binds the request id before any other middleware runs.
 app.add_middleware(RequestIDMiddleware)
 
+# Prometheus HTTP metrics + /metrics (internal-network only; no app auth).
+if settings.ENABLE_METRICS:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+
 # Include routers (legacy match.py removed — guest flow supersedes it)
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(events.router, prefix="/api/events", tags=["Events"])

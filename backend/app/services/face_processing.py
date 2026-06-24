@@ -2,6 +2,7 @@ from ..database import SessionLocal
 from ..models import models
 from .face_engine import face_engine
 from .s3_service import s3_service
+from ..core.metrics import photos_processed_total, faces_detected_total
 import numpy as np
 import logging
 import os
@@ -73,8 +74,11 @@ def process_photo_faces(photo_id: int, raise_on_error: bool = False):
 
         photo.processing_status = models.ProcessingStatus.COMPLETED
         db.commit()
+        photos_processed_total.labels("completed").inc()
+        faces_detected_total.inc(len(faces))
     except Exception:
         logger.exception("Face processing failed for photo %s", photo_id)
+        photos_processed_total.labels("failed").inc()
         if photo is not None:
             try:
                 photo.processing_status = models.ProcessingStatus.FAILED
