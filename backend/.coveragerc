@@ -1,0 +1,13 @@
+[run]
+source = app
+omit =
+    app/services/face_engine.py
+    app/workers/celery_app.py
+    */alembic/*
+    app/__init__.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError

@@ -52,9 +52,9 @@ jobs:
           DATABASE_URL: postgresql+psycopg://postgres:test@localhost:5432/test
         run: alembic upgrade head
       - name: Tests + coverage
-        # Phase 1 floor = 70%; raise to 80 after Phase 3 adds
-        # face-processing / matching / migration coverage.
-        run: pytest --cov=app --cov-report=term-missing --cov-fail-under=70
+        # Phase 3 floor = 75%; raise to 80 once the pg/celery marked suites
+        # run in CI (set WEDFIND_TEST_PG_URL + a live broker).
+        run: pytest --cov=app --cov-report=term-missing --cov-fail-under=75
 
   frontend:
     runs-on: ubuntu-latest
