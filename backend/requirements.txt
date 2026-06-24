@@ -8,6 +8,7 @@ passlib[bcrypt]==1.7.4
 pydantic[email]==2.7.4
 pydantic-settings==2.3.1
 redis==5.0.7
+celery==5.4.0
 qrcode==7.4.2
 pillow==10.3.0
 insightface==0.7.3

@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     CONSENT_VERSION: str = "1.0"
     SENTRY_DSN: str | None = None
     ENV: str = "production"  # set ENV=development|test to relax HTTPS redirect
+    # When false, ingest falls back to FastAPI BackgroundTasks/threads (rollback path).
+    USE_CELERY: bool = True
 
     @property
     def admin_emails(self) -> set[str]:

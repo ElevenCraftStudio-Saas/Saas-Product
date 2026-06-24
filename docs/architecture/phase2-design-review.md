@@ -111,7 +111,7 @@ The index exists but is unused because the **query shape** is wrong, and matchin
 - **C. HNSW migration** — add `event_id` + backfill + tuned index; rewrite matching to KNN. *Tests:* PG integration: EXPLAIN uses index, KNN == range-scan results at threshold, event isolation. *Deploy:* run migration in low-write window; verify EXPLAIN in prod.
 - **D. Thumbnail generation** — `thumb_key` column, `make_thumbnail` task, ingest enqueues, list endpoints return thumbs, `backfill_thumbnails`; frontend `next/image`. *Tests:* thumb created + key stored; list returns thumb URL; backfill enqueues null-key photos. *Deploy:* run backfill one-off; set CDN `remotePatterns`.
 
-## Open decisions for reviewer
-1. **Guest matching:** option **(B) threadpool now** (recommended) vs **(A) Celery+poll now** (more work, needs frontend change)?
-2. **HNSW rebuild window:** brief write-lock acceptable, or build-new-then-swap (more careful, more steps)?
-3. **Drop the duplicate JSON `embedding`** column once KNN is proven (saves ~50% table size), or keep as SQLite-dev fallback? (Recommend: keep for now, drop in Phase 3.)
+## Decisions (approved 2026-06-24)
+1. **Guest matching:** (B) **threadpool now** (`run_in_threadpool`), Celery+poll deferred to a fast-follow.
+2. **HNSW rebuild:** brief **write-lock in a low-traffic window** (rebuild in place, tuned params).
+3. **Duplicate JSON `embedding`:** **keep** through Phase 2 (SQLite-dev + legacy-NULL fallback); drop in Phase 3.

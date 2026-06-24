@@ -41,5 +41,33 @@ services:
       sh -c "alembic upgrade head &&
              gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:8000"
 
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: [backend/.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://wedfind:dev@db:5432/wedfind
+      REDIS_URL: redis://redis:6379/0
+      ENV: development
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    command: celery -A app.workers.celery_app worker -Q face,thumbs,maintenance -c 2 --loglevel=info
+
+  beat:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: [backend/.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://wedfind:dev@db:5432/wedfind
+      REDIS_URL: redis://redis:6379/0
+      ENV: development
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    command: celery -A app.workers.celery_app beat --loglevel=info
+
 volumes:
   pgdata: {}
