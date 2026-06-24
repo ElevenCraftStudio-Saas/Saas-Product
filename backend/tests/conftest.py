@@ -15,6 +15,9 @@ os.environ.setdefault("FIREBASE_PROJECT_ID", "test-project")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 os.environ.setdefault("ADMIN_EMAILS", "")
 os.environ.setdefault("ENV", "test")
+# Tests exercise the in-process path (no live Redis broker); the Celery path is
+# covered with mocks in test_face_tasks.py.
+os.environ.setdefault("USE_CELERY", "false")
 
 import pytest
 from fastapi.testclient import TestClient

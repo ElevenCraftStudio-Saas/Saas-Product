@@ -6,7 +6,7 @@ from ..database import get_db
 from ..models import models
 from ..schemas import schemas
 from .deps import require_user
-from ..services.face_processing import process_photo_faces
+from ..services.dispatch import enqueue_process_photo
 from ..services.s3_service import s3_service
 from ..services.photo_ingest import ingest_photo_bytes, is_allowed_image, MAX_FILE_SIZE
 
@@ -58,7 +58,7 @@ async def upload_photos(
                     event_id, file.filename, db_photo.storage_key)
         db_photo.url = s3_service.generate_presigned_url(db_photo.storage_key)
         db_photos.append(db_photo)
-        background_tasks.add_task(process_photo_faces, db_photo.id)
+        enqueue_process_photo(db_photo.id, background_tasks)
 
     return db_photos
 

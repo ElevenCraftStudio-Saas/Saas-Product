@@ -3,16 +3,33 @@ from ..models import models
 from .face_engine import face_engine
 from .s3_service import s3_service
 import numpy as np
+import logging
 import os
 import uuid
 
-def process_photo_faces(photo_id: int):
+logger = logging.getLogger("wedfind.face")
+
+
+def process_photo_faces(photo_id: int, raise_on_error: bool = False):
+    """Detect faces in a photo and store embeddings.
+
+    Idempotent: clears any existing embeddings for the photo first, so a retry
+    (Celery acks_late) never double-inserts. With raise_on_error=True (the Celery
+    path) the exception propagates so the task can retry; otherwise it is
+    swallowed after marking the photo FAILED (the BackgroundTasks fallback).
+    """
     db = SessionLocal()
     temp_path = None
+    photo = None
     try:
         photo = db.query(models.Photo).filter(models.Photo.id == photo_id).first()
         if not photo:
             return
+
+        # Idempotency: drop prior embeddings before re-detecting.
+        db.query(models.FaceEmbedding).filter(
+            models.FaceEmbedding.photo_id == photo_id
+        ).delete(synchronize_session=False)
 
         photo.processing_status = models.ProcessingStatus.PROCESSING
         db.commit()
@@ -55,11 +72,16 @@ def process_photo_faces(photo_id: int):
 
         photo.processing_status = models.ProcessingStatus.COMPLETED
         db.commit()
-    except Exception as e:
-        print(f"Error processing photo {photo_id}: {e}")
-        if photo:
-            photo.processing_status = models.ProcessingStatus.FAILED
-            db.commit()
+    except Exception:
+        logger.exception("Face processing failed for photo %s", photo_id)
+        if photo is not None:
+            try:
+                photo.processing_status = models.ProcessingStatus.FAILED
+                db.commit()
+            except Exception:
+                db.rollback()
+        if raise_on_error:
+            raise
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)

@@ -22,7 +22,7 @@ from watchdog.events import FileSystemEventHandler
 from ..database import SessionLocal
 from ..models import models
 from .photo_ingest import ingest_photo_bytes, photo_exists, is_allowed_image
-from .face_processing import process_photo_faces
+from .dispatch import enqueue_process_photo
 
 logger = logging.getLogger("wedfind.watcher")
 
@@ -73,8 +73,8 @@ class WatcherManager:
         finally:
             db.close()
 
-        # Trigger embeddings off the watcher thread (opens its own session).
-        threading.Thread(target=process_photo_faces, args=(photo_id,), daemon=True).start()
+        # Trigger embeddings (Celery when enabled, else a daemon thread).
+        enqueue_process_photo(photo_id)
         return True
 
     @staticmethod

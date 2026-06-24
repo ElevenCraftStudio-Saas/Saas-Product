@@ -12,6 +12,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -127,8 +128,9 @@ async def match_selfie(
             detail={"size": len(contents), "mime": file.content_type},
         )
 
-        # 4. Exactly one face required.
-        faces = face_engine.get_faces(temp_path)
+        # 4. Exactly one face required. Run blocking InsightFace inference in a
+        #    threadpool so it does not block the async event loop.
+        faces = await run_in_threadpool(face_engine.get_faces, temp_path)
         if not faces:
             raise HTTPException(status_code=400, detail="No face detected in the selfie.")
         if len(faces) > 1:

@@ -9,7 +9,10 @@ Run a worker:
 Run beat (exactly one replica):
     celery -A app.workers.celery_app beat
 """
+from datetime import timedelta
+
 from celery import Celery
+from celery.schedules import crontab
 
 from ..config import settings
 
@@ -17,7 +20,10 @@ celery_app = Celery(
     "wedfind",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
-    include=[],  # face_tasks / thumb_tasks / maintenance appended in later steps
+    include=[
+        "app.workers.face_tasks",
+        "app.workers.maintenance",
+    ],
 )
 
 celery_app.conf.update(
@@ -33,6 +39,16 @@ celery_app.conf.update(
     },
     task_time_limit=600,                  # hard 10 min ceiling per task
     task_soft_time_limit=540,
+    beat_schedule={
+        "retention-daily": {
+            "task": "app.workers.maintenance.retention_sweep",
+            "schedule": crontab(hour=3, minute=0),       # 03:00 UTC daily
+        },
+        "reset-stuck-15m": {
+            "task": "app.workers.maintenance.reset_stuck_processing",
+            "schedule": timedelta(minutes=15),
+        },
+    },
 )
 
 

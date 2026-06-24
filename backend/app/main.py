@@ -58,11 +58,15 @@ async def lifespan(app: FastAPI):
         watcher_manager.start_all()
     except Exception:
         logging.getLogger("wedfind").exception("Failed to start folder watchers")
-    # Background DPDP retention sweeper.
-    sweeper = asyncio.create_task(_retention_loop())
+    # Background DPDP retention sweeper. With Celery enabled this runs as a
+    # beat task instead (single replica) — don't duplicate it in every web worker.
+    sweeper = None
+    if not settings.USE_CELERY:
+        sweeper = asyncio.create_task(_retention_loop())
     yield
     # Clean shutdown.
-    sweeper.cancel()
+    if sweeper is not None:
+        sweeper.cancel()
     watcher_manager.stop_all()
 
 
