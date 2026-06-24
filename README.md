@@ -189,7 +189,7 @@ Runs against an isolated SQLite DB (`DATABASE_URL` set in `conftest.py` before i
 ## 🔒 Security & Privacy
 
 - No secrets in git — credentials gitignored; use `.env.example`.
-- First-user-becomes-studio bootstrap; least-privilege `guest` default.
+- Roles: `admin` (single system admin, minted only via `python scripts/make_admin.py <email>`), `user` (studio photographer), `pending` (invite-only — no access until an admin grants `user`). New logins default to `pending`; there is no auto-admin. The admin manages all users and sets each user's event + storage quota (`DEFAULT_EVENT_LIMIT`=2, `DEFAULT_STORAGE_LIMIT_MB`=2048). Admin and studio UIs are separate, role-gated areas; admin routes verify `role == "admin"` server-side (not just hidden in the UI).
 - **DPDP compliance suite:**
   - Biometric consent (text + version + IP + user-agent + timestamp) recorded before any face processing.
   - **Consent ledger + CSV/PDF export** — audit-ready proof per event.
