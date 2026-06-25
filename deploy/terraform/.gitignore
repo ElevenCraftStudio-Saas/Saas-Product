@@ -1,0 +1,12 @@
+# Terraform — NEVER commit state (holds the RDS password + secret values),
+# local var files, or saved plans.
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfplan
+tf.plan
+terraform.tfvars
+*.auto.tfvars
+
+# DO commit the provider lock for reproducible installs.
+!.terraform.lock.hcl
