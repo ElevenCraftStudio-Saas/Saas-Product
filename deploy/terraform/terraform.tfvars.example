@@ -1,0 +1,25 @@
+# Copy to terraform.tfvars and adjust. Never commit the real tfvars if it holds
+# anything sensitive (this file does not — secrets go to Secrets Manager).
+
+region      = "ap-south-1"
+environment = "staging"
+
+# Required — your Firebase project id (non-secret).
+firebase_project_id = "wedfind-xxxxx"
+
+# CORS origin the API will accept (your staging frontend).
+frontend_url = "https://staging.wedfind.ai"
+
+# Access: prefer SSM Session Manager (leave SSH empty). To allow SSH, set both:
+# ssh_allowed_cidrs = ["203.0.113.10/32"]
+# ssh_public_key    = "ssh-ed25519 AAAA..."
+
+# DNS (optional). Leave empty to skip Route53.
+# app_domain      = "staging-api.wedfind.ai"
+# route53_zone_id = "Z0123456789ABCDEFGHIJ"
+
+# Sizing overrides (defaults are staging-appropriate).
+# app_instance_type = "t3.large"
+# db_instance_class = "db.t3.small"
+# db_multi_az       = false
+# redis_node_type   = "cache.t3.micro"

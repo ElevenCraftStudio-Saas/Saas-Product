@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "coverage/**", // Vitest coverage output
+    // E2E has its own Playwright typecheck/lint lane; keep it out of PR CI.
+    "e2e/**",
+    "playwright.config.ts",
   ]),
 ]);
 

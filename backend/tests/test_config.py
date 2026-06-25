@@ -5,10 +5,10 @@ import pydantic
 from app.config import Settings
 
 _REQUIRED = ["DATABASE_URL", "REDIS_URL", "AWS_REGION", "S3_BUCKET", "AWS_BUCKET_NAME",
-             "FIREBASE_PROJECT_ID", "SECRET_KEY", "ADMIN_EMAILS"]
+             "FIREBASE_PROJECT_ID"]
 
 _VALID = dict(DATABASE_URL="sqlite://", REDIS_URL="redis://x", AWS_REGION="r",
-              S3_BUCKET="b", FIREBASE_PROJECT_ID="p", SECRET_KEY="s", ADMIN_EMAILS="")
+              S3_BUCKET="b", FIREBASE_PROJECT_ID="p")
 
 
 def test_settings_fail_fast_on_missing(monkeypatch):
@@ -22,11 +22,6 @@ def test_no_sqlite_default():
     # DATABASE_URL has no default — it is a required field.
     assert "DATABASE_URL" in Settings.model_fields
     assert Settings.model_fields["DATABASE_URL"].is_required()
-
-
-def test_admin_emails_parsing():
-    s = Settings(_env_file=None, **{**_VALID, "ADMIN_EMAILS": "A@x.com, b@Y.com ,"})
-    assert s.admin_emails == {"a@x.com", "b@y.com"}
 
 
 def test_s3_bucket_accepts_legacy_alias(monkeypatch):

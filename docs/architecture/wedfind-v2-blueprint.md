@@ -282,7 +282,7 @@ app/
 ---
 
 ## 6. Admin Workflows
-1. **Bootstrap:** owner email in `ADMIN_EMAILS`; on first login `role=admin` auto-assigned → `/admin/users`.
+1. **Bootstrap:** run `python scripts/make_admin_firestore.py owner@email.com` after the user's first login; or find the user's Firestore doc in the console and set `role: "admin"`.
 2. **Manage user:** edit `max_events` / `storage_limit_mb` inline; **Promote to Admin** / **Demote to User** (blocked if it would remove the last admin → 400).
 3. **Agent token:** `/admin/tokens` → pick a `user` → create → plaintext shown **once** → hand to studio for the desktop agent. Revoke anytime.
 4. **Oversight:** global audit log + analytics across all studios.
@@ -326,7 +326,7 @@ LIMIT 100;
 - **Transport:** TLS at LB; `HTTPSRedirectMiddleware` + HSTS (`max-age=63072000; includeSubDomains; preload`).
 - **Headers middleware:** `Content-Security-Policy` (locked to self + CDN + Firebase), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`.
 - **AuthN:** Firebase ID token verified server-side — RS256, `aud=PROJECT_ID`, `iss=securetoken.google.com/<proj>`, `leeway=30s` (fixes clock-skew 401s), `sub` required.
-- **AuthZ (RBAC):** `require_user` / `require_admin` deps; role from DB; admin via `ADMIN_EMAILS` allowlist at provisioning; last-admin-lock on demotion.
+- **AuthZ (RBAC):** `require_user` / `require_admin` deps; role from DB synced from Firestore (source of truth); last-admin-lock on demotion.
 - **Rate limiting:** SlowAPI with **Redis** storage (shared across replicas); trusted-proxy `X-Forwarded-For` only behind known hops.
 - **Uploads:** extension + MIME + **magic-byte** sniff (Pillow verify) + size cap; folder-watch confined to `WATCH_BASE_DIR` allowlist.
 - **S3:** Block Public Access ON; objects private; **presigned** GET (≤1h) / PUT; CloudFront with signed URLs in front.
@@ -350,9 +350,6 @@ class Settings(BaseSettings):
     FIREBASE_PROJECT_ID: str
     FIREBASE_CLIENT_EMAIL: str
     FIREBASE_PRIVATE_KEY: str
-    SECRET_KEY: str
-    API_TOKEN_PEPPER: str
-    ADMIN_EMAILS: str = ""                  # comma-separated
     FRONTEND_URL: str
     SENTRY_DSN: str | None = None
     DEFAULT_EVENT_LIMIT: int = 2
@@ -360,9 +357,8 @@ class Settings(BaseSettings):
     WATCH_BASE_DIR: str | None = None
     ENV: str = "production"
 
-    @property
-    def admin_emails(self) -> set[str]:
-        return {e.strip().lower() for e in self.ADMIN_EMAILS.split(",") if e.strip()}
+    # Roles are managed in Firestore (see services/firestore_service.py).
+    # The ADMIN_EMAILS env-var approach has been removed.
 
 settings = Settings()   # raises at import if a required var is missing → process won't boot
 ```
@@ -490,7 +486,7 @@ Coverage gate enforced in CI (`--cov-fail-under=80`). Postgres-backed tests run 
 1. **Provision:** RDS Postgres + `CREATE EXTENSION vector;` (private subnet) · ElastiCache Redis · S3 bucket (Block Public Access ON) + CloudFront (signed URLs) · ECR repos · Secrets Manager entries for every `Settings` var.
 2. **DNS/TLS:** `app.<domain>` → Vercel (or frontend container behind ALB) · `api.<domain>` → ALB→ECS, ACM cert, HSTS.
 3. **Deploy:** CI builds images → ECS services: `api` (web), `worker` (Celery, scale on queue depth), `beat` (replicas=1). Run `alembic upgrade head` as a one-off task **before** shifting traffic.
-4. **Bootstrap admin:** set `ADMIN_EMAILS`; owner logs in once → auto-admin.
+4. **Bootstrap admin:** run `python scripts/make_admin_firestore.py owner@email.com` after the owner signs in once; or set `role: "admin"` on the user's Firestore doc manually.
 5. **Probes:** ALB target group health = `/readyz` (503 when degraded); ECS container health = `/livez`.
 6. **Observability:** Sentry DSN set; structured JSON logs → CloudWatch; `/metrics` scraped by Prometheus/Grafana; alarms on 5xx, queue depth, RDS conns, worker failures.
 7. **Backups:** RDS automated snapshots + PITR; S3 versioning + lifecycle (retention).
@@ -504,7 +500,7 @@ Coverage gate enforced in CI (`--cov-fail-under=80`). Postgres-backed tests run 
 **Scale/perf** ☐ Celery workers (no inference in web) ☐ HNSW KNN query (index-backed) ☐ thumbnails + next/image + CDN ☐ pagination on all lists ☐ storage counter (no per-upload SUM) ☐ DB pool tuned ☐ job-id polling stops when terminal
 **Data** ☐ FK `ON DELETE CASCADE`/`SET NULL` ☐ indexes (event_id, created_at; downloads.photo_id) ☐ single `vector(512)` (no dup JSON) ☐ migrations reversible
 **Ops** ☐ Dockerfile bakes model ☐ docker-compose ☐ CI (lint+migrate+pytest≥80%+build) ☐ `/livez`+`/readyz` (503 degraded) ☐ Sentry ☐ structured logs ☐ `/metrics` ☐ RDS backups+PITR ☐ S3 versioning
-**Product** ☐ admin-allowlist bootstrap ☐ no pending state ☐ guest anonymous ☐ desktop agent token=assigned user ☐ OpenAPI gated in prod
+**Product** ☐ Firestore admin bootstrap (scripts/make_admin_firestore.py) ☐ no pending state ☐ guest anonymous ☐ desktop agent token=assigned user ☐ OpenAPI gated in prod
 
 ---
 

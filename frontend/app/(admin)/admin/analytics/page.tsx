@@ -3,7 +3,8 @@
 import { useQuery } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { BarChart3, ShieldCheck, Eye, ScanFace, Download, Image as ImageIcon, Calendar, Loader2 } from 'lucide-react';
+import { ShieldCheck, Eye, ScanFace, Download, Image as ImageIcon, Calendar, Loader2 } from 'lucide-react';
+import { PageHeader } from '@/components/layout/page-header';
 
 interface EventAnalytics { event_id: number; title: string | null; photos: number; consents: number; scans: number; matches: number; downloads: number; }
 interface Analytics { total_events: number; total_photos: number; total_consents: number; total_scans: number; total_matches: number; total_downloads: number; per_event: EventAnalytics[]; }
@@ -23,7 +24,7 @@ export default function AdminAnalyticsPage() {
   });
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold flex items-center gap-2"><BarChart3 className="w-7 h-7 text-primary" /> Analytics</h1>
+      <PageHeader title="Analytics" description="Scans, matches and downloads per event." />
       {isLoading || !data ? <Loader2 className="w-6 h-6 animate-spin" /> : (
         <>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">

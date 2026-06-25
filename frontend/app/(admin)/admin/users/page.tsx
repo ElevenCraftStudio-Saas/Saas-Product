@@ -5,8 +5,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Users, Loader2, Copy } from 'lucide-react';
+import { Loader2, Copy } from 'lucide-react';
 import { toast } from 'sonner';
+import { PageHeader } from '@/components/layout/page-header';
 
 interface AdminUser {
   id: number;
@@ -61,7 +62,7 @@ export default function AdminUsersPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold flex items-center gap-2"><Users className="w-7 h-7 text-primary" /> Users</h1>
+      <PageHeader title="Users" description="Roles, event and storage limits, agent tokens." />
 
       {newToken && (
         <Card>

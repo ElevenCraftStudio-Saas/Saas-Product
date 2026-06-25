@@ -5,8 +5,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { KeyRound, Loader2, Copy } from 'lucide-react';
+import { Loader2, Copy } from 'lucide-react';
 import { toast } from 'sonner';
+import { PageHeader } from '@/components/layout/page-header';
 
 interface AdminUser { id: number; email: string | null; name: string | null; role: string; }
 interface TokenInfo { id: number; name: string | null; token_prefix: string | null; revoked: boolean; created_at: string; last_used_at: string | null; }
@@ -41,7 +42,7 @@ export default function AdminTokensPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold flex items-center gap-2"><KeyRound className="w-7 h-7 text-primary" /> Agent Tokens</h1>
+      <PageHeader title="Agent Tokens" description="Create and revoke desktop-agent keys, assigned per user." />
 
       <Card>
         <CardHeader><CardTitle className="text-lg">Create agent token</CardTitle></CardHeader>

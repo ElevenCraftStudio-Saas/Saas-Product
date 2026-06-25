@@ -1,197 +1,45 @@
 'use client';
 
-import { useParams } from 'next/navigation';
-import { useState } from 'react';
-import { toast } from 'sonner';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Camera, Sparkles, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Camera, Loader2, Sparkles, Image as ImageIcon, ShieldCheck, Download } from 'lucide-react';
-import { SelfieCapture } from '@/components/guest/selfie-capture';
-import { PhotoGallery } from '@/components/guest/photo-gallery';
-import {
-  useGuestEvent,
-  useSelfieMatch,
-  fetchDownloadUrl,
-  downloadZip,
-  eraseMyData,
-  type GuestPhoto,
-} from '@/lib/hooks/guest';
+import { PageSpinner } from '@/components/feedback/states';
+import { GuestHeader } from '@/components/guest/guest-header';
+import { useGuestFlow } from '@/components/guest/guest-flow-provider';
+import { formatDate } from '@/lib/format';
 
-const CONSENT_TEXT =
-  'I consent to face recognition processing for the purpose of finding my event photos.';
+export default function GuestLandingPage() {
+  const router = useRouter();
+  const { slug, event, isLoading, isError } = useGuestFlow();
 
-export default function GuestEventPage() {
-  const params = useParams();
-  const slug = String(params.slug);
+  useEffect(() => {
+    if (isError) router.replace(`/event/${slug}/not-found`);
+  }, [isError, slug, router]);
 
-  const { data: event, isLoading } = useGuestEvent(slug);
-  const match = useSelfieMatch(slug);
-
-  const [consented, setConsented] = useState(false);
-  const [photos, setPhotos] = useState<GuestPhoto[] | null>(null);
-  const [downloadingId, setDownloadingId] = useState<number | null>(null);
-
-  async function handleConfirm(blob: Blob) {
-    try {
-      const result = await match.mutateAsync(blob);
-      setPhotos(result.photos);
-      if (result.count === 0) toast.info('No matches found. Try another selfie.');
-      else toast.success(`Found ${result.count} photo${result.count > 1 ? 's' : ''} of you!`);
-    } catch (e: unknown) {
-      const detail = (e as { response?: { data?: { detail?: string } } }).response?.data?.detail;
-      toast.error(detail || 'Matching failed. Please try again.');
-    }
-  }
-
-  const [zipping, setZipping] = useState(false);
-
-  async function handleDownload(photoId: number) {
-    try {
-      setDownloadingId(photoId);
-      const url = await fetchDownloadUrl(slug, photoId);
-      window.open(url, '_blank', 'noopener');
-    } catch {
-      toast.error('Could not start download.');
-    } finally {
-      setDownloadingId(null);
-    }
-  }
-
-  async function handleDownloadAll() {
-    if (!photos?.length) return;
-    try {
-      setZipping(true);
-      await downloadZip(slug, photos.map((p) => p.id));
-      toast.success('Downloading ZIP…');
-    } catch {
-      toast.error('ZIP download failed.');
-    } finally {
-      setZipping(false);
-    }
-  }
-
-  async function handleErase() {
-    if (!confirm('Delete all your data for this event (consent + activity)? This cannot be undone.')) return;
-    try {
-      const res = await eraseMyData(slug);
-      setPhotos(null);
-      setConsented(false);
-      toast.success(`Your data was deleted (${res.consents_deleted} consent record(s)).`);
-    } catch {
-      toast.error('Could not delete your data. Try again.');
-    }
-  }
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin" />
-      </div>
-    );
-  }
-
-  const showGallery = photos !== null && photos.length > 0;
-  const noMatches = photos !== null && photos.length === 0;
+  if (isLoading) return <div className="flex flex-1 items-center justify-center"><PageSpinner /></div>;
+  if (!event) return null;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center py-10 px-4">
-      <div className="max-w-4xl w-full space-y-8">
-        {/* Banner */}
-        <div className="text-center space-y-2">
-          <h1 className="text-4xl font-extrabold tracking-tight text-slate-900">
-            {event?.title}
-          </h1>
-          <p className="text-xl text-slate-500">
-            {event?.description || 'Find your photos instantly using AI'}
-          </p>
+    <>
+      <GuestHeader />
+      <main className="flex flex-1 flex-col items-center justify-center gap-6 py-10 text-center">
+        <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <Camera className="h-8 w-8" aria-hidden />
+        </span>
+        <div>
+          <h1 className="text-2xl font-bold">{event.title}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{formatDate(event.event_date)}</p>
+          {event.description ? <p className="mt-3 max-w-xs text-sm text-muted-foreground">{event.description}</p> : null}
         </div>
-
-        {/* Capture / consent flow (hidden once gallery shown) */}
-        {!showGallery && (
-          <Card className="border-2 border-primary/20 shadow-xl overflow-hidden">
-            <CardHeader className="bg-primary text-primary-foreground text-center py-8">
-              <Sparkles className="w-10 h-10 mx-auto mb-3 opacity-80" />
-              <CardTitle className="text-2xl">Find Your Photos</CardTitle>
-              <p className="opacity-90">Give consent, take a selfie, and we&apos;ll find you</p>
-            </CardHeader>
-            <CardContent className="p-6 md:p-8 space-y-6">
-              {/* Consent gate */}
-              <label className="flex items-start gap-3 rounded-lg border bg-slate-50 p-4 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={consented}
-                  onChange={(e) => setConsented(e.target.checked)}
-                  className="mt-1 h-5 w-5 accent-primary"
-                />
-                <span className="text-sm text-slate-700 flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-primary shrink-0" />
-                  {CONSENT_TEXT}
-                </span>
-              </label>
-
-              {consented ? (
-                <SelfieCapture onConfirm={handleConfirm} busy={match.isPending} />
-              ) : (
-                <div className="flex flex-col items-center space-y-3 py-6 text-center">
-                  <Camera className="w-10 h-10 text-slate-300" />
-                  <p className="text-sm text-slate-400">
-                    Tick the consent box above to enable the camera.
-                  </p>
-                </div>
-              )}
-
-              <p className="text-xs text-center text-slate-400">
-                Your selfie is used only for matching and is not stored permanently.
-              </p>
-
-              {noMatches && (
-                <div className="text-center pt-2">
-                  <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <ImageIcon className="w-8 h-8 text-slate-300" />
-                  </div>
-                  <h3 className="font-semibold">No matches found</h3>
-                  <p className="text-slate-500 text-sm mt-1">
-                    Make sure your face is clearly visible, then retake.
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Gallery */}
-        {showGallery && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between border-b pb-4">
-              <h2 className="text-2xl font-bold">Your Gallery ({photos!.length})</h2>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={handleDownloadAll} disabled={zipping}>
-                  {zipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                  <span className="ml-1">Download All</span>
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setPhotos(null)}>
-                  New Search
-                </Button>
-              </div>
-            </div>
-            <PhotoGallery
-              photos={photos!}
-              onDownload={handleDownload}
-              downloadingId={downloadingId}
-            />
-          </div>
-        )}
-      </div>
-
-      <footer className="mt-20 flex flex-col items-center gap-2 text-slate-400 text-sm">
-        <span>Powered by WedFind AI</span>
-        <button
-          onClick={handleErase}
-          className="text-xs underline hover:text-red-500 transition-colors"
-        >
-          Delete my data
-        </button>
-      </footer>
-    </div>
+        <p className="flex items-center gap-1 text-sm text-muted-foreground">
+          <Sparkles className="h-4 w-4" aria-hidden /> Find your photos with a quick selfie
+        </p>
+        <Button className="h-14 w-full max-w-xs rounded-full text-base" onClick={() => router.push(`/event/${slug}/consent`)}>
+          Find My Photos <ArrowRight className="ml-2 h-5 w-5" />
+        </Button>
+      </main>
+      <footer className="py-4 text-center text-xs text-muted-foreground">Powered by WedFind AI · No account needed</footer>
+    </>
   );
 }

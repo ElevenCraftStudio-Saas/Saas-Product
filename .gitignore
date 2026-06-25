@@ -58,3 +58,6 @@ Thumbs.db
 
 # ---- Desktop ingest agent (holds the studio API key) ----
 agent/config.json
+
+# ---- Superpowers skill session state ----
+.superpowers/

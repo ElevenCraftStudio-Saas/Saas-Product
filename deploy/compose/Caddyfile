@@ -1,0 +1,21 @@
+# Reverse proxy + automatic HTTPS. {$APP_DOMAIN} comes from compose env:
+#   * a real FQDN (e.g. staging-api.wedfind.ai) → Caddy gets a Let's Encrypt cert
+#   * ":80" (default when no domain yet) → plain HTTP, no TLS
+#
+# Caddy terminates TLS and forwards to the api container. It sets
+# X-Forwarded-Proto=https automatically, which uvicorn (started with
+# --forwarded-allow-ips='*') trusts — so the app's production HTTPS redirect
+# sees the correct scheme and does not loop.
+{$APP_DOMAIN} {
+	encode gzip zstd
+
+	# Health endpoints stay reachable for external monitors.
+	@health path /livez /readyz /healthz
+	handle @health {
+		reverse_proxy api:8000
+	}
+
+	reverse_proxy api:8000 {
+		header_up X-Forwarded-Proto https
+	}
+}

@@ -12,6 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Upload directory — created at build time so the image always contains it.
+# At runtime Docker Compose may mount a host volume over this path.
+RUN mkdir -p /app/uploads && chmod -R 755 /app/uploads
+
 COPY backend/requirements.txt ./
 RUN pip install -r requirements.txt
 
@@ -19,6 +23,9 @@ RUN pip install -r requirements.txt
 # NOT download ~300 MB on first request (deterministic cold start).
 RUN python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l').prepare(ctx_id=-1)"
 
+# If backend/firebase-service-account.json exists locally it is copied here.
+# At runtime the app also checks GOOGLE_APPLICATION_CREDENTIALS and
+# FIREBASE_SERVICE_ACCOUNT_B64 before falling back to this path.
 COPY backend/ .
 
 EXPOSE 8000
@@ -26,5 +33,8 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -fsS http://localhost:8000/livez || exit 1
 
 # API. The worker container overrides CMD (see docker-compose.yml).
+# Celery handles CPU-intensive AI tasks (face embeddings, thumbnails,
+# maintenance) so the API tier stays lightweight — a single worker is
+# sufficient and avoids loading the InsightFace model four times.
 CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", \
-     "-w", "4", "-b", "0.0.0.0:8000"]
+     "-w", "1", "-b", "0.0.0.0:8000"]

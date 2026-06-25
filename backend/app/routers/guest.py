@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..models import models
 from ..schemas import schemas
@@ -26,8 +27,6 @@ from ..core.limiter import limiter
 
 router = APIRouter()
 logger = logging.getLogger("wedfind.guest")
-
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "../uploads")
 MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", 0.6))
 CONSENT_VERSION = os.getenv("CONSENT_VERSION", "1.0")
 DEFAULT_CONSENT_TEXT = (
@@ -49,7 +48,7 @@ def _photo_url(photo: models.Photo, thumb: bool = False) -> str:
     if photo.storage_provider == "s3":
         key = (photo.thumb_key or photo.storage_key) if thumb else photo.storage_key
         return s3_service.generate_presigned_url(key, DOWNLOAD_URL_TTL) or ""
-    return f"/uploads/{photo.filepath.replace('../uploads/', '')}"
+    return settings.upload_url_for(photo.filepath)
 
 
 def _get_event_or_404(slug: str, db: Session) -> models.Event:
@@ -66,7 +65,7 @@ def get_public_event(slug: str, request: Request, db: Session = Depends(get_db))
     if event.storage_provider == "s3":
         event.url = s3_service.generate_presigned_url(event.storage_key, DOWNLOAD_URL_TTL)
     elif event.qr_code_path:
-        event.url = f"/uploads/{event.qr_code_path.replace('../uploads/', '')}"
+        event.url = settings.upload_url_for(event.qr_code_path)
 
     activity.log_activity(
         db, activity.EVENT_VIEWED, event_id=event.id, ip_address=_client_ip(request)
@@ -116,7 +115,7 @@ async def match_selfie(
     db.commit()
 
     # 3. Persist selfie to a temp file for InsightFace.
-    temp_dir = os.path.join(UPLOAD_DIR, "temp_selfies")
+    temp_dir = os.path.join(settings.UPLOAD_DIR, "temp_selfies")
     os.makedirs(temp_dir, exist_ok=True)
     safe_name = os.path.basename(file.filename or "selfie")
     temp_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{safe_name}")

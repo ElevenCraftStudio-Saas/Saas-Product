@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
+from ..config import settings
 from ..database import get_db
 from ..models import models
 from ..schemas import schemas
@@ -140,7 +141,7 @@ def get_events(
         if event.storage_provider == "s3":
             event.url = s3_service.generate_presigned_url(event.storage_key)
         else:
-            event.url = f"/uploads/{event.qr_code_path.replace('../uploads/', '')}"
+            event.url = settings.upload_url_for(event.qr_code_path)
     return events
 
 @router.get("/{event_id}", response_model=schemas.EventResponse)
@@ -159,8 +160,8 @@ def get_event(
     if event.storage_provider == "s3":
         event.url = s3_service.generate_presigned_url(event.storage_key)
     else:
-        event.url = f"/uploads/{event.qr_code_path.replace('../uploads/', '')}"
-        
+        event.url = settings.upload_url_for(event.qr_code_path)
+
     return event
 
 @router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)

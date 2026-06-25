@@ -1,0 +1,60 @@
+name: e2e
+
+# Playwright browser validation against a REAL, running deployment.
+# Deliberately NOT run on every PR — it needs a live stack (Firebase, FastAPI,
+# Postgres, Redis, Celery, S3, InsightFace) and real credentials.
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Frontend origin to test (e.g. https://staging.wedfind.ai)
+        required: true
+        default: http://localhost:3000
+      real_faces:
+        description: Run face-matching happy paths (needs seeded assets)
+        required: false
+        default: '0'
+      all_browsers:
+        description: Also run Firefox + WebKit
+        required: false
+        default: '0'
+  push:
+    tags:
+      - 'v*-rc*' # release-candidate tags trigger a full browser pass
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: frontend }
+    env:
+      E2E_BASE_URL: ${{ github.event.inputs.base_url || vars.E2E_BASE_URL }}
+      E2E_STUDIO_EMAIL: ${{ secrets.E2E_STUDIO_EMAIL }}
+      E2E_STUDIO_PASSWORD: ${{ secrets.E2E_STUDIO_PASSWORD }}
+      E2E_EVENT_SLUG: ${{ vars.E2E_EVENT_SLUG }}
+      E2E_EXPIRED_SLUG: ${{ vars.E2E_EXPIRED_SLUG }}
+      E2E_REAL_FACES: ${{ github.event.inputs.real_faces || '0' }}
+      E2E_ALL_BROWSERS: ${{ github.event.inputs.all_browsers || '1' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps ${{ env.E2E_ALL_BROWSERS == '1' && 'chromium firefox webkit' || 'chromium' }}
+      - name: Run E2E
+        run: npx playwright test
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/e2e/.report
+          retention-days: 14
+      - name: Upload screenshots (release artifacts)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-screenshots
+          path: frontend/e2e/screenshots
+          retention-days: 30

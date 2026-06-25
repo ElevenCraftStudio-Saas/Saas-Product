@@ -60,9 +60,14 @@ celery_app.conf.update(
 )
 
 
-# Workers get the same JSON logging + Sentry as the web tier.
+# Workers get the same JSON logging + Sentry + Firebase as the web tier.
 configure_logging()
 init_sentry(celery=True)
+try:
+    from ..core.firebase import init_firebase
+    init_firebase()  # non-fatal; Firestore degrades gracefully without credentials
+except Exception:  # pragma: no cover - defensive, init_firebase already guards
+    pass
 
 
 _task_starts: dict[str, float] = {}

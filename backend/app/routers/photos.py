@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Backgro
 from sqlalchemy.orm import Session
 from typing import List
 import logging
+from ..config import settings
 from ..database import get_db
 from ..models import models
 from ..schemas import schemas
@@ -85,6 +86,6 @@ def get_event_photos(
             photo.url = s3_service.generate_presigned_url(photo.thumb_key or photo.storage_key)
         else:
             # Fallback for local files
-            photo.url = f"/uploads/{photo.filepath.replace('../uploads/', '')}"
+            photo.url = settings.upload_url_for(photo.filepath)
             
     return photos

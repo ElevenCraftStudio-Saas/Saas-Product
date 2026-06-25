@@ -1,10 +1,19 @@
 import boto3
 import os
 import logging
+from botocore.config import Config
 from botocore.exceptions import ClientError
 from typing import Optional
 
 logger = logging.getLogger("wedfind.s3")
+
+# Bounded timeouts so a slow/unreachable S3 endpoint can never hang a request
+# (notably /readyz's head_bucket) or wedge a worker.
+_BOTO_CONFIG = Config(
+    connect_timeout=3,
+    read_timeout=5,
+    retries={"max_attempts": 2, "mode": "standard"},
+)
 
 class S3Service:
     def __init__(self):
@@ -14,7 +23,8 @@ class S3Service:
             's3',
             aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
             aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-            region_name=self.region
+            region_name=self.region,
+            config=_BOTO_CONFIG,
         )
         # Surface effective config at startup (no secrets).
         logger.info(
@@ -50,7 +60,7 @@ class S3Service:
             self.s3_client.delete_object(Bucket=self.bucket_name, Key=object_name)
             return True
         except ClientError as e:
-            print(f"S3 Delete Error: {e}")
+            logger.exception("S3 delete failed key=%s err=%s", object_name, e)
             return False
 
     def get_bytes(self, object_name: str):
@@ -69,7 +79,7 @@ class S3Service:
             )
             return url
         except ClientError as e:
-            print(f"S3 Presigned URL Error: {e}")
+            logger.exception("S3 presigned-url failed key=%s err=%s", object_name, e)
             return None
 
     def file_exists(self, object_name: str):
@@ -84,7 +94,7 @@ class S3Service:
             self.s3_client.download_file(self.bucket_name, object_name, local_path)
             return True
         except ClientError as e:
-            print(f"S3 Download Error: {e}")
+            logger.exception("S3 download failed key=%s err=%s", object_name, e)
             return False
 
 s3_service = S3Service()

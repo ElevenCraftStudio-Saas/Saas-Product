@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
@@ -52,11 +53,25 @@ async def _retention_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _log = logging.getLogger("wedfind")
+    # Firebase Admin (single implementation). Missing credentials are non-fatal:
+    # token verification still works via Google's public certs.
+    from .core.firebase import init_firebase, get_firestore_client
+    if init_firebase():
+        _log.info("Firebase Admin initialized")
+        try:
+            get_firestore_client()
+            _log.info("Firestore client ready")
+        except Exception:
+            _log.warning("Firestore client unavailable")
+    else:
+        _log.warning("Firebase Admin not initialized (no credentials) — continuing; token verification still works")
+
     # Resume all enabled folder watches on startup (survives restart).
     try:
         watcher_manager.start_all()
     except Exception:
-        logging.getLogger("wedfind").exception("Failed to start folder watchers")
+        _log.exception("Failed to start folder watchers")
     # Background DPDP retention sweeper. With Celery enabled this runs as a
     # beat task instead (single replica) — don't duplicate it in every web worker.
     sweeper = None
@@ -81,8 +96,10 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-# Mount static files
-app.mount("/uploads", StaticFiles(directory=os.getenv("UPLOAD_DIR", "../uploads")), name="uploads")
+# Mount static files — create directory if missing so startup never fails.
+UPLOAD_DIR = Path(settings.UPLOAD_DIR)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 # Configure CORS. FRONTEND_URL may be a comma-separated list. Localhost dev
 # origins are only added OUTSIDE production (avoid trusting them in prod).

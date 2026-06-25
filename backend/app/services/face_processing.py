@@ -39,7 +39,8 @@ def process_photo_faces(photo_id: int, raise_on_error: bool = False):
         image_path = photo.filepath
         if photo.storage_provider == "s3":
             # Download to temp file for processing
-            temp_dir = os.path.join(os.getenv("UPLOAD_DIR", "../uploads"), "temp_processing")
+            from ..config import settings
+            temp_dir = os.path.join(settings.UPLOAD_DIR, "temp_processing")
             os.makedirs(temp_dir, exist_ok=True)
             temp_path = os.path.join(temp_dir, f"{uuid.uuid4()}.jpg")
             success = s3_service.download_to_temp(photo.storage_key, temp_path)

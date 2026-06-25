@@ -32,8 +32,6 @@ jobs:
       AWS_REGION: us-east-1
       S3_BUCKET: test-bucket
       FIREBASE_PROJECT_ID: test-project
-      SECRET_KEY: test-secret
-      ADMIN_EMAILS: ""
       ENV: test
     defaults:
       run: { working-directory: backend }
@@ -66,6 +64,7 @@ jobs:
         with: { node-version: "20" }
       - run: npm ci
       - run: npm run lint
+      - run: npm run test:coverage
       - run: npm run build
 
   docker-build:

@@ -128,3 +128,16 @@
     @apply font-sans;
   }
 }
+/* Print-friendly QR: isolate the QR card when printing (Print button in QRCard). */
+@media print {
+  body * { visibility: hidden; }
+  .qr-printable, .qr-printable * { visibility: visible; }
+  .qr-printable {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    height: fit-content;
+    border: none;
+    box-shadow: none;
+  }
+}

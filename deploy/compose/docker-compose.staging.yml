@@ -1,0 +1,81 @@
+# WedFind staging stack — runs on the EC2 Docker host.
+#
+# Differences from the local docker-compose.yml:
+#   * No db/redis containers — uses managed RDS (pgvector) + ElastiCache via the
+#     DATABASE_URL / REDIS_URL rendered into .env by fetch-secrets.sh.
+#   * No static AWS keys — S3 access comes from the EC2 instance role (boto3
+#     picks it up automatically; AWS_ACCESS_KEY_ID/SECRET stay unset).
+#   * ENV=production (from the secret) → HTTPS redirect + strict CORS. The app
+#     runs behind Caddy (TLS), so uvicorn is started with --forwarded-allow-ips.
+#   * Image is pulled, not built (BACKEND_IMAGE set by deploy.sh).
+#
+# Required env (provided by --env-file /opt/wedfind/.env): everything the app
+# needs PLUS APP_DOMAIN (for Caddy) and BACKEND_IMAGE.
+
+x-app-image: &app_image ${BACKEND_IMAGE:?set BACKEND_IMAGE}
+
+services:
+  api:
+    image: *app_image
+    env_file: [/opt/wedfind/.env]
+    environment:
+      # Honor X-Forwarded-Proto from Caddy so the prod HTTPS redirect doesn't loop.
+      FORWARDED_ALLOW_IPS: "*"
+      UPLOAD_DIR: /app/uploads
+    expose: ["8000"]
+    volumes:
+      - uploads:/app/uploads
+    command: >
+      sh -c "alembic upgrade head &&
+             gunicorn app.main:app -k uvicorn.workers.UvicornWorker
+             -w 2 -b 0.0.0.0:8000 --forwarded-allow-ips='*' --timeout 120"
+    healthcheck:
+      # Send the proxy header so the app returns a real status (no 307 redirect).
+      test: ["CMD-SHELL", "curl -fsS -H 'X-Forwarded-Proto: https' http://localhost:8000/readyz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  worker:
+    image: *app_image
+    env_file: [/opt/wedfind/.env]
+    environment:
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads:/app/uploads
+    command: celery -A app.workers.celery_app worker -Q default,face,thumbs,maintenance -c 2 --loglevel=info
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  beat:
+    image: *app_image
+    env_file: [/opt/wedfind/.env]
+    command: celery -A app.workers.celery_app beat --loglevel=info
+    healthcheck: { disable: true }
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    depends_on: [api]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-:80} # FQDN → auto-HTTPS; ":80" → plain HTTP (no domain yet)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  uploads: {}
+  caddy_data: {}
+  caddy_config: {}

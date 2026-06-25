@@ -2,6 +2,11 @@ __pycache__/
 *.pyc
 .venv/
 .env
+.env.*
+# NEVER bake the service-account private key into the image — mount it at
+# runtime (compose volume) or use FIREBASE_SERVICE_ACCOUNT_B64.
+firebase-service-account.json
+*service-account*.json
 *.db
 tests/
 .pytest_cache/

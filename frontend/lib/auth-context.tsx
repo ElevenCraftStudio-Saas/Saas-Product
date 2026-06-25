@@ -12,7 +12,7 @@ import {
   type User,
   type ConfirmationResult,
 } from 'firebase/auth';
-import { auth, googleProvider, firebaseConfigured } from '@/lib/firebase';
+import { auth, googleProvider } from '@/lib/firebase';
 
 function ensureAuth() {
   if (!auth) {
@@ -39,8 +39,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Subscribe to Firebase auth (external system). The early setLoading(false)
+  // handles the not-configured case; the rule flags the synchronous setState.
   useEffect(() => {
     if (!auth) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- auth subscription
       setLoading(false); // Firebase not configured — stop loading, no user.
       return;
     }

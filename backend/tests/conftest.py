@@ -12,8 +12,6 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("AWS_REGION", "us-east-1")
 os.environ.setdefault("S3_BUCKET", "test-bucket")
 os.environ.setdefault("FIREBASE_PROJECT_ID", "test-project")
-os.environ.setdefault("SECRET_KEY", "test-secret")
-os.environ.setdefault("ADMIN_EMAILS", "")
 os.environ.setdefault("ENV", "test")
 # Tests exercise the in-process path (no live Redis broker); the Celery path is
 # covered with mocks in test_face_tasks.py.
@@ -46,6 +44,20 @@ def _mock_s3(monkeypatch):
         s3_module.s3_service, "generate_presigned_url", lambda *a, **k: "https://signed.example/x"
     )
     monkeypatch.setattr(s3_module.s3_service, "get_bytes", lambda *a, **k: b"FAKEIMAGEBYTES")
+
+
+@pytest.fixture(autouse=True)
+def _mock_firestore(monkeypatch):
+    """No real Firestore in tests — stub role lookups."""
+    import app.services.firestore_service as fs
+
+    def fake_ensure_user_doc(uid, email, display_name):
+        # Return 'admin' for the test admin email, otherwise 'user'.
+        return "admin" if email == "admin@test.ai" else "user"
+
+    monkeypatch.setattr(fs, "ensure_user_doc", fake_ensure_user_doc)
+    monkeypatch.setattr(fs, "set_user_role", lambda uid, role, email="", display_name="": True)
+    monkeypatch.setattr(fs, "get_user_role", lambda uid: None)
 
 
 @pytest.fixture

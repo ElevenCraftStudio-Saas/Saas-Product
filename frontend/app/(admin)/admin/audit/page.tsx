@@ -3,7 +3,8 @@
 import { useQuery } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card';
-import { ScrollText, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import { PageHeader } from '@/components/layout/page-header';
 
 interface Activity { id: number; action: string; event_id: number | null; ip_address: string | null; detail: Record<string, unknown> | null; created_at: string; }
 
@@ -13,7 +14,7 @@ export default function AdminAuditPage() {
   });
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold flex items-center gap-2"><ScrollText className="w-7 h-7 text-primary" /> Audit Log</h1>
+      <PageHeader title="Audit Log" description="System activity across all events." />
       <Card>
         <CardContent className="pt-6 overflow-x-auto">
           {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : (

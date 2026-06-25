@@ -68,6 +68,9 @@ def set_user_role(
     target.role = body.role
     db.commit()
     db.refresh(target)
+    # Sync role change to Firestore (source of truth).
+    from ..services.firestore_service import set_user_role
+    set_user_role(target.firebase_uid, body.role, email=target.email, display_name=target.name)
     return _admin_user(db, target)
 
 
