@@ -1,25 +1,28 @@
 # Copy to terraform.tfvars and adjust. Never commit the real tfvars if it holds
 # anything sensitive (this file does not — secrets go to Secrets Manager).
 
-region      = "ap-south-1"
-environment = "staging"
+region      = "us-east-1"   # where your account/EC2 lives
+environment = "staging"     # promote to "production" later (flips HA + protections)
 
 # Required — your Firebase project id (non-secret).
-firebase_project_id = "wedfind-xxxxx"
+firebase_project_id = "saas-139a7"
 
-# CORS origin the API will accept (your staging frontend).
-frontend_url = "https://staging.wedfind.ai"
+# CORS origin the API will accept = your FRONTEND url.
+frontend_url = "https://wedfind.elevencraftstudio.com"
+
+# --- DNS + TLS (Caddy auto-issues a Let's Encrypt cert for this name) ---
+# The API subdomain. Must resolve to the app's Elastic IP before first request.
+app_domain      = "api.wedfind.elevencraftstudio.com"
+# Route53 hosted-zone id for elevencraftstudio.com. If the domain is NOT in
+# Route53, leave this empty and add the A record manually at your DNS host.
+route53_zone_id = ""   # e.g. "Z0123456789ABCDEFGHIJ"
 
 # Access: prefer SSM Session Manager (leave SSH empty). To allow SSH, set both:
-# ssh_allowed_cidrs = ["203.0.113.10/32"]
+# ssh_allowed_cidrs = ["<your-ip>/32"]
 # ssh_public_key    = "ssh-ed25519 AAAA..."
 
-# DNS (optional). Leave empty to skip Route53.
-# app_domain      = "staging-api.wedfind.ai"
-# route53_zone_id = "Z0123456789ABCDEFGHIJ"
-
-# Sizing overrides (defaults are staging-appropriate).
+# Sizing — staging defaults are fine. Face matching is CPU-bound.
 # app_instance_type = "t3.large"
 # db_instance_class = "db.t3.small"
-# db_multi_az       = false
+# db_multi_az       = false          # set true for production HA
 # redis_node_type   = "cache.t3.micro"
