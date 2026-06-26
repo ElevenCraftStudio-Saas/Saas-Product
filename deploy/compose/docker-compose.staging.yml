@@ -25,10 +25,10 @@ services:
     expose: ["8000"]
     volumes:
       - uploads:/app/uploads
-    command: >
-      sh -c "alembic upgrade head &&
-             gunicorn app.main:app -k uvicorn.workers.UvicornWorker
-             -w 2 -b 0.0.0.0:8000 --forwarded-allow-ips='*' --timeout 120"
+    # Single line + no nested quotes: the folded form with --forwarded-allow-ips='*'
+    # was tokenized wrong by Docker and dropped -b (gunicorn fell back to
+    # 127.0.0.1, unreachable from Caddy). FORWARDED_ALLOW_IPS env handles proxy IPs.
+    command: sh -c "alembic upgrade head && exec gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 2 -b 0.0.0.0:8000 --timeout 120"
     healthcheck:
       # Send the proxy header so the app returns a real status (no 307 redirect).
       test: ["CMD-SHELL", "curl -fsS -H 'X-Forwarded-Proto: https' http://localhost:8000/readyz || exit 1"]
