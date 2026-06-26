@@ -21,6 +21,9 @@ resource "aws_secretsmanager_secret_version" "app" {
     REDIS_URL           = "redis://${aws_elasticache_cluster.redis.cache_nodes[0].address}:6379/0"
     AWS_REGION          = var.region
     S3_BUCKET           = aws_s3_bucket.photos.bucket
+    # s3_service reads AWS_BUCKET_NAME directly; config also accepts S3_BUCKET.
+    # Provide both so every code path finds the bucket.
+    AWS_BUCKET_NAME     = aws_s3_bucket.photos.bucket
     FIREBASE_PROJECT_ID = var.firebase_project_id
     FRONTEND_URL        = var.frontend_url
     ENV                 = "production" # enables HTTPS redirect + strict CORS in-app
