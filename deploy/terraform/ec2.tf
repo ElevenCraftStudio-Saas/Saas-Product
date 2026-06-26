@@ -3,7 +3,8 @@ data "aws_ami" "al2023" {
   owners      = ["amazon"]
   filter {
     name   = "name"
-    values = ["al2023-ami-*-x86_64"]
+    # Standard AL2023 (NOT al2023-ami-minimal-*, which ships without the SSM agent).
+    values = ["al2023-ami-2023.*-x86_64"]
   }
   filter {
     name   = "virtualization-type"

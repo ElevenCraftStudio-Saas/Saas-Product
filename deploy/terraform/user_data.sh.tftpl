@@ -7,6 +7,11 @@ set -euxo pipefail
 dnf update -y
 dnf install -y docker amazon-cloudwatch-agent
 
+# Ensure the SSM agent is present + running (no-op on standard AL2023 where it's
+# preinstalled; required if a minimal AMI is ever used). Enables Session Manager.
+dnf install -y amazon-ssm-agent || true
+systemctl enable --now amazon-ssm-agent || true
+
 # Docker + compose plugin
 systemctl enable --now docker
 usermod -aG docker ec2-user || true
