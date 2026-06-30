@@ -61,3 +61,4 @@ agent/config.json
 
 # ---- Superpowers skill session state ----
 .superpowers/
+.firebase/
