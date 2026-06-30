@@ -11,13 +11,6 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
-    ],
-    "redirects": [
-      {
-        "source": "/",
-        "destination": "https://app.wedfind.ai",
-        "type": 302
-      }
     ]
   }
 }
