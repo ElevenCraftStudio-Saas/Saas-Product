@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     FIREBASE_PROJECT_ID: str
 
     # --- Optional (sensible defaults) ---
-    UPLOAD_DIR: str = "/app/uploads"
+    UPLOAD_DIR: str = "uploads"
     FRONTEND_URL: str = "http://localhost:3000"
     AWS_ACCESS_KEY_ID: str | None = None
     AWS_SECRET_ACCESS_KEY: str | None = None
