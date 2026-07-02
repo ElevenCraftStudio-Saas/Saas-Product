@@ -10,20 +10,18 @@ from app.services import firestore_service
 @pytest.fixture
 def mock_firestore():
     """Provides a mock Firestore client and the patcher to inject it."""
-    with patch("app.services.firestore_service._get_client") as mock_get:
-        # Setup the hierarchy: Client -> Collection -> Document
-        mock_client = MagicMock()
+    with patch("app.services.firestore_service._firestore_client") as mock_client:
+        # Setup the hierarchy: Client -> Collection -> Document -> Snapshot
         mock_collection = MagicMock()
         mock_document = MagicMock()
 
-        mock_get.return_value = mock_client
         mock_client.collection.return_value = mock_collection
         mock_collection.document.return_value = mock_document
 
         yield {
             "client": mock_client,
-            "doc": mock_document,
-            "get_client": mock_get
+            "collection": mock_collection,
+            "doc": mock_document
         }
 
 def test_get_user_role_success(mock_firestore):
@@ -36,6 +34,8 @@ def test_get_user_role_success(mock_firestore):
 
     role = firestore_service.get_user_role("test-uid")
     assert role == "admin"
+    mock_firestore["client"].collection.assert_called_once_with("users")
+    mock_firestore["collection"].document.assert_called_once_with("test-uid")
     mock_firestore["doc"].get.assert_called_once()
 
 def test_get_user_role_not_found(mock_firestore):
@@ -47,12 +47,11 @@ def test_get_user_role_not_found(mock_firestore):
     role = firestore_service.get_user_role("unknown-uid")
     assert role is None
 
-def test_get_user_role_firestore_unavailable(mock_firestore):
+def test_get_user_role_firestore_unavailable():
     """Test reading a role when the Firestore client is unavailable."""
-    mock_firestore["get_client"].return_value = None
-
-    role = firestore_service.get_user_role("any-uid")
-    assert role is None
+    with patch("app.services.firestore_service._firestore_client", None):
+        role = firestore_service.get_user_role("any-uid")
+        assert role is None
 
 def test_get_user_role_exception(mock_firestore):
     """Test that exceptions during read are caught and return None."""
@@ -75,11 +74,11 @@ def test_set_user_role_invalid(mock_firestore):
     with pytest.raises(ValueError, match="Invalid role"):
         firestore_service.set_user_role("test-uid", "super-admin")
 
-def test_set_user_role_unavailable(mock_firestore):
+def test_set_user_role_unavailable():
     """Test setting a role when client is unavailable."""
-    mock_firestore["get_client"].return_value = None
-    success = firestore_service.set_user_role("test-uid", "admin")
-    assert success is False
+    with patch("app.services.firestore_service._firestore_client", None):
+        success = firestore_service.set_user_role("test-uid", "admin")
+        assert success is False
 
 def test_ensure_user_doc_existing(mock_firestore):
     """Test ensure_user_doc when user already exists."""
@@ -103,14 +102,11 @@ def test_ensure_user_doc_create_new(mock_firestore):
     assert role == "user"
     mock_firestore["doc"].set.assert_called_once()
 
-def test_ensure_user_doc_unavailable(mock_firestore):
+def test_ensure_user_doc_unavailable():
     """Test ensure_user_doc when Firestore is unavailable."""
-    mock_firestore["get_client"].return_value = None
-    
-    # Existing role check will return None (unavailable)
-    # Then it will try to get doc ref and fail.
-    role = firestore_service.ensure_user_doc("any-uid", "any@ai.com", "Any User")
-    assert role == "user"
+    with patch("app.services.firestore_service._firestore_client", None):
+        role = firestore_service.ensure_user_doc("any-uid", "any@ai.com", "Any User")
+        assert role == "user"
 
 def test_ensure_user_doc_exception(mock_firestore):
     """Test ensure_user_doc handles set() exceptions."""
