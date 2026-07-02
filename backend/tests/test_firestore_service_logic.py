@@ -10,14 +10,16 @@ from app.services import firestore_service
 @pytest.fixture
 def mock_firestore():
     """Provides a mock Firestore client and the patcher to inject it."""
-    with patch("app.services.firestore_service._firestore_client") as mock_client:
-        # Setup the hierarchy: Client -> Collection -> Document -> Snapshot
-        mock_collection = MagicMock()
-        mock_document = MagicMock()
+    # Create the mock client and chain
+    mock_client = MagicMock()
+    mock_collection = MagicMock()
+    mock_document = MagicMock()
 
-        mock_client.collection.return_value = mock_collection
-        mock_collection.document.return_value = mock_document
+    mock_client.collection.return_value = mock_collection
+    mock_collection.document.return_value = mock_document
 
+    # Patch _get_client to return our mock
+    with patch("app.services.firestore_service._get_client", return_value=mock_client):
         yield {
             "client": mock_client,
             "collection": mock_collection,
@@ -49,7 +51,7 @@ def test_get_user_role_not_found(mock_firestore):
 
 def test_get_user_role_firestore_unavailable():
     """Test reading a role when the Firestore client is unavailable."""
-    with patch("app.services.firestore_service._firestore_client", None):
+    with patch("app.services.firestore_service._get_client", return_value=None):
         role = firestore_service.get_user_role("any-uid")
         assert role is None
 
@@ -76,7 +78,7 @@ def test_set_user_role_invalid(mock_firestore):
 
 def test_set_user_role_unavailable():
     """Test setting a role when client is unavailable."""
-    with patch("app.services.firestore_service._firestore_client", None):
+    with patch("app.services.firestore_service._get_client", return_value=None):
         success = firestore_service.set_user_role("test-uid", "admin")
         assert success is False
 
@@ -104,7 +106,7 @@ def test_ensure_user_doc_create_new(mock_firestore):
 
 def test_ensure_user_doc_unavailable():
     """Test ensure_user_doc when Firestore is unavailable."""
-    with patch("app.services.firestore_service._firestore_client", None):
+    with patch("app.services.firestore_service._get_client", return_value=None):
         role = firestore_service.ensure_user_doc("any-uid", "any@ai.com", "Any User")
         assert role == "user"
 
