@@ -48,16 +48,11 @@ def _mock_s3(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _mock_firestore(monkeypatch):
-    """No real Firestore in tests — stub role lookups."""
-    import app.services.firestore_service as fs
-
-    def fake_ensure_user_doc(uid, email, display_name):
-        # Return 'admin' for the test admin email, otherwise 'user'.
-        return "admin" if email == "admin@test.ai" else "user"
-
-    monkeypatch.setattr(fs, "ensure_user_doc", fake_ensure_user_doc)
-    monkeypatch.setattr(fs, "set_user_role", lambda uid, role, email="", display_name="": True)
-    monkeypatch.setattr(fs, "get_user_role", lambda uid: None)
+    """No real Firestore in tests — prevent the final network call
+    (firebase_admin.firestore.client) while letting the higher-level
+    logic in firebase.py and firestore_service.py execute normally."""
+    from firebase_admin import firestore as fa_firestore
+    monkeypatch.setattr(fa_firestore, "client", lambda: None)
 
 
 @pytest.fixture
