@@ -6,11 +6,12 @@
     "rules": "storage.rules"
   },
   "hosting": {
-    "public": "frontend/out",
+    "public": "frontend",
     "ignore": [
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
-    ]
+    ],
+    "frameworksBackend": "auto"
   }
 }
