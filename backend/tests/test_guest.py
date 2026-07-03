@@ -1,4 +1,5 @@
 import io
+import time
 from app.routers import guest as guest_router
 
 
@@ -34,7 +35,14 @@ def test_selfie_requires_consent(client, as_studio):
         files={"file": ("s.png", _png_bytes(), "image/png")},
         data={"consent": "false", "request_id": "test-123"},
     )
-    assert r.status_code == 400
+    # Endpoint returns 200 immediately, validation happens async via SSE
+    assert r.status_code == 200
+    # Poll processing stream to check for consent error
+    stream_r = client.get(f"/api/guest/{ev['event_slug']}/processing-stream?request_id=test-123")
+    assert stream_r.status_code == 200
+    # Stream should contain error about consent
+    stream_data = stream_r.text
+    assert "Consent is required" in stream_data or "consent" in stream_data.lower()
     assert "consent" in r.json()["detail"].lower()
 
 
@@ -45,9 +53,19 @@ def test_selfie_no_face(client, as_studio, monkeypatch):
     r = client.post(
         f"/api/guest/{ev['event_slug']}/selfie",
         files={"file": ("s.png", _png_bytes(), "image/png")},
-        data={"consent": "true", "request_id": "test-123"},
+        data={"consent": "true", "request_id": "test-no-face"},
     )
-    assert r.status_code == 400
+    # Endpoint returns 200 immediately, validation happens async via SSE
+    assert r.status_code == 200
+    # Poll processing stream to check for no face error
+    for _ in range(10):  # Poll for up to 1 second
+        stream_r = client.get(f"/api/guest/{ev['event_slug']}/processing-stream?request_id=test-no-face")
+        if stream_r.status_code == 200:
+            stream_data = stream_r.text
+            if "no face" in stream_data.lower() or "error" in stream_data.lower():
+                return
+        time.sleep(0.1)
+    assert False, "No face error not found in stream"
     assert "no face" in r.json()["detail"].lower()
 
 
@@ -58,9 +76,19 @@ def test_selfie_multi_face(client, as_studio, monkeypatch):
     r = client.post(
         f"/api/guest/{ev['event_slug']}/selfie",
         files={"file": ("s.png", _png_bytes(), "image/png")},
-        data={"consent": "true", "request_id": "test-123"},
+        data={"consent": "true", "request_id": "test-multi-face"},
     )
-    assert r.status_code == 400
+    # Endpoint returns 200 immediately, validation happens async via SSE
+    assert r.status_code == 200
+    # Poll processing stream to check for multiple faces error
+    for _ in range(10):  # Poll for up to 1 second
+        stream_r = client.get(f"/api/guest/{ev['event_slug']}/processing-stream?request_id=test-multi-face")
+        if stream_r.status_code == 200:
+            stream_data = stream_r.text
+            if "multiple" in stream_data.lower() or "error" in stream_data.lower():
+                return
+        time.sleep(0.1)
+    assert False, "Multiple faces error not found in stream"
     assert "multiple" in r.json()["detail"].lower()
 
 

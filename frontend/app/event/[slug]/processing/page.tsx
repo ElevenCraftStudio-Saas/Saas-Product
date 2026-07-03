@@ -30,6 +30,7 @@ export default function ProcessingPage() {
   const ran = useRef(false);
   const completedHandled = useRef(false);
   const errorHandled = useRef(false);
+  const lastProcessedStatus = useRef<string | null>(null);
 
   // Generate unique request ID for this processing session
   const requestId = useMemo(() => crypto.randomUUID(), []);
@@ -58,7 +59,9 @@ export default function ProcessingPage() {
 
   // Update timeline based on SSE state
   useEffect(() => {
-    if (streamState) {
+    if (streamState && streamState.status !== lastProcessedStatus.current) {
+      lastProcessedStatus.current = streamState.status;
+
       if (streamState.status === 'completed' && !completedHandled.current) {
         completedHandled.current = true;
         setStage(MATCH_STAGES.length - 1);
@@ -83,7 +86,7 @@ export default function ProcessingPage() {
         setError(streamState.message);
       } else if (streamState.type === 'progress') {
         const mappedStage = STATUS_TO_STAGE[streamState.status] ?? stage;
-        if (stage !== mappedStage) setStage(mappedStage);
+        setStage(mappedStage);
       }
     }
   }, [streamState, slug, router, setMatches, stage]);
