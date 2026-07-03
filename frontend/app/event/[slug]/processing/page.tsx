@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,7 +8,18 @@ import { GuestHeader } from '@/components/guest/guest-header';
 import { MatchingTimeline, MATCH_STAGES } from '@/components/guest/matching-timeline';
 import { useGuestFlow } from '@/components/guest/guest-flow-provider';
 import { submitSelfie } from '@/services/guest';
-import { toApiError } from '@/lib/errors';
+import { useProcessingStream } from '@/lib/hooks/use-processing-stream';
+
+// Map backend status to timeline stage index
+const STATUS_TO_STAGE: Record<string, number> = {
+  starting: 0,
+  validating: 0,
+  consenting: 1,
+  uploading: 1,
+  detecting: 2,
+  matching: 3,
+  completed: 4,
+};
 
 export default function ProcessingPage() {
   const router = useRouter();
@@ -18,32 +29,64 @@ export default function ProcessingPage() {
   const [error, setError] = useState<string | null>(null);
   const ran = useRef(false);
 
+  // Generate unique request ID for this processing session
+  const requestId = useRef(crypto.randomUUID()).current;
+
+  // SSE hook for real-time updates
+  const { state: streamState, error: streamError } = useProcessingStream(slug, true, requestId);
+
   useEffect(() => {
     if (!selfie) { router.replace(`/event/${slug}/selfie`); return; }
     if (ran.current) return;
     ran.current = true;
 
-    // Advance the simulated stages up to the second-to-last while the single
-    // match request is in flight; the result snaps to "done".
-    let s = 0;
-    const timer = setInterval(() => { s = Math.min(s + 1, MATCH_STAGES.length - 2); setStage(s); }, 700);
-
+    // Submit selfie and start processing
     (async () => {
       try {
-        const result = await submitSelfie(slug, selfie);
-        clearInterval(timer);
-        setStage(MATCH_STAGES.length - 1);
-        setDone(true);
-        setMatches(result);
-        setTimeout(() => router.replace(`/event/${slug}/gallery`), 600);
+        await submitSelfie(slug, selfie, requestId);
+        // Processing started, SSE will handle updates
       } catch (e) {
-        clearInterval(timer);
-        setError(toApiError(e).message);
+        const err = e as Error;
+        setError(err.message || 'Failed to submit selfie');
       }
     })();
 
-    return () => clearInterval(timer);
-  }, [selfie, slug, router, setMatches]);
+    return () => {};
+  }, [selfie, slug, requestId, router]);
+
+  // Update timeline based on SSE state
+  useEffect(() => {
+    if (streamState) {
+      if (streamState.status === 'completed') {
+        setStage(MATCH_STAGES.length - 1);
+        setDone(true);
+
+        // Set matches from stream data
+        if (streamState.photos && streamState.photos.length > 0) {
+          setMatches({
+            count: streamState.count || streamState.photos.length,
+            photos: streamState.photos.map(p => ({
+              id: p.id,
+              filename: p.filename,
+              url: p.url,
+            })),
+          });
+        }
+
+        // Navigate to gallery after short delay
+        setTimeout(() => router.replace(`/event/${slug}/gallery`), 800);
+      } else if (streamState.status === 'error') {
+        setError(streamState.message);
+      } else if (streamState.type === 'progress') {
+        const mappedStage = STATUS_TO_STAGE[streamState.status] ?? stage;
+        setStage(mappedStage);
+      }
+    }
+  }, [streamState, slug, router, setMatches, stage]);
+
+  if (streamError) {
+    setError(streamError);
+  }
 
   if (error) {
     return (
@@ -65,6 +108,9 @@ export default function ProcessingPage() {
       <GuestHeader />
       <main className="flex flex-1 flex-col justify-center py-8">
         <h1 className="mb-6 text-center text-xl font-bold">Finding your photos…</h1>
+        {streamState?.message && (
+          <p className="mb-4 text-center text-sm text-muted-foreground">{streamState.message}</p>
+        )}
         <div className="mx-auto w-full max-w-xs">
           <MatchingTimeline current={stage} done={done} />
         </div>

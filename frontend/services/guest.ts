@@ -8,17 +8,19 @@ export function getGuestEvent(slug: string): Promise<GuestEvent> {
   return httpGet<GuestEvent>(`/guest/${slug}`);
 }
 
-/** POST selfie + consent → matched photos (single synchronous call). */
+/** POST selfie + consent → returns request_id for SSE streaming. */
 export async function submitSelfie(
   slug: string,
   blob: Blob,
+  requestId: string,
   opts?: { signal?: AbortSignal; onUploadProgress?: (e: AxiosProgressEvent) => void },
-): Promise<SelfieMatchResult> {
+): Promise<{ request_id: string; message: string }> {
   const form = new FormData();
   form.append('file', blob, 'selfie.jpg');
   form.append('consent', 'true');
+  form.append('request_id', requestId);
   try {
-    const res = await api.post<SelfieMatchResult>(`/guest/${slug}/selfie`, form, {
+    const res = await api.post<{ request_id: string; message: string }>(`/guest/${slug}/selfie`, form, {
       signal: opts?.signal,
       onUploadProgress: opts?.onUploadProgress,
       headers: { 'Content-Type': 'multipart/form-data' },

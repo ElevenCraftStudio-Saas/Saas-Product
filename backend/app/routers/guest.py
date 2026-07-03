@@ -3,11 +3,14 @@
 GET  /api/guest/{slug}                             -> event details (+ EVENT_VIEWED)
 POST /api/guest/{slug}/selfie                      -> consent + face match (event-scoped)
 GET  /api/guest/{slug}/photos/{photo_id}/download  -> signed url (event-isolated)
+GET  /api/guest/{slug}/processing-stream           -> SSE: real-time selfie processing updates
 """
 import os
 import io
 import uuid
 import zipfile
+import json
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
@@ -35,6 +38,9 @@ DEFAULT_CONSENT_TEXT = (
 MAX_SELFIE_BYTES = 10 * 1024 * 1024  # 10 MB
 ALLOWED_MIME = {"image/jpeg", "image/png"}
 DOWNLOAD_URL_TTL = 3600  # seconds
+
+# In-memory processing state for SSE (use Redis in production for multi-instance)
+_processing_state: dict[str, dict] = {}
 
 
 def _client_ip(request: Request) -> str:
@@ -73,98 +79,249 @@ def get_public_event(slug: str, request: Request, db: Session = Depends(get_db))
     return event
 
 
-@router.post("/{slug}/selfie", response_model=schemas.SelfieMatchResponse)
+@router.get("/{slug}/processing-stream")
+async def processing_stream(slug: str, request_id: str, request: Request):
+    """SSE endpoint for real-time selfie processing updates.
+
+    Client sends request_id in query param, receives progress events.
+    """
+    async def event_generator():
+        try:
+            # Send initial state
+            state = _processing_state.get(request_id, {})
+            if state:
+                yield f"data: {json.dumps(state)}\n\n"
+
+            # Stream updates until completion or timeout
+            timeout = 60  # 60 seconds max
+            start = asyncio.get_event_loop().time()
+
+            while True:
+                if asyncio.get_event_loop().time() - start > timeout:
+                    yield f"data: {json.dumps({'type': 'timeout'})}\n\n"
+                    break
+
+                state = _processing_state.get(request_id, {})
+                if state:
+                    yield f"data: {json.dumps(state)}\n\n"
+
+                if state.get("status") == "completed":
+                    break
+
+                await asyncio.sleep(0.5)  # Poll every 500ms
+
+            # Clean up completed state
+            _processing_state.pop(request_id, None)
+
+        except asyncio.CancelledError:
+            logger.debug("SSE client disconnected for request_id=%s", request_id)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/{slug}/selfie")
 @limiter.limit("10/minute")
 async def match_selfie(
     slug: str,
     request: Request,
     file: UploadFile = File(...),
     consent: bool = Form(...),
+    request_id: str = Form(...),
     db: Session = Depends(get_db),
 ):
+    """Process selfie with real-time progress via SSE.
+
+    Returns request_id immediately, processes in background.
+    Client connects to /{slug}/processing-stream?request_id={id} for updates.
+    """
     event = _get_event_or_404(slug, db)
     ip = _client_ip(request)
 
-    # 1. Consent is mandatory before any biometric processing.
-    if not consent:
-        raise HTTPException(
-            status_code=400,
-            detail="Consent to face recognition processing is required.",
-        )
+    # Initialize processing state
+    _processing_state[request_id] = {
+        "type": "progress",
+        "status": "starting",
+        "message": "Initializing...",
+        "progress": 0,
+    }
 
-    # 2. File validation.
-    if file.content_type not in ALLOWED_MIME:
-        raise HTTPException(status_code=400, detail="Only JPEG or PNG images are allowed.")
+    async def process_selfie_background():
+        try:
+            # Update state: validating
+            _processing_state[request_id] = {
+                "type": "progress",
+                "status": "validating",
+                "message": "Validating consent and file...",
+                "progress": 10,
+            }
 
-    contents = await file.read()
-    if len(contents) == 0:
-        raise HTTPException(status_code=400, detail="Empty file.")
-    if len(contents) > MAX_SELFIE_BYTES:
-        raise HTTPException(status_code=400, detail="Image exceeds the 10 MB limit.")
+            # 1. Consent validation
+            if not consent:
+                _processing_state[request_id] = {
+                    "type": "error",
+                    "status": "error",
+                    "message": "Consent is required",
+                }
+                return
 
-    # Record consent (server-captured IP + version + exact text + UA) before processing.
-    db.add(
-        models.GuestConsent(
-            event_id=event.id,
-            ip_address=ip,
-            consent_version=CONSENT_VERSION,
-            consent_text=event.consent_text or DEFAULT_CONSENT_TEXT,
-            user_agent=(request.headers.get("user-agent") or "")[:512],
-        )
-    )
-    db.commit()
+            # 2. File validation
+            if file.content_type not in ALLOWED_MIME:
+                _processing_state[request_id] = {
+                    "type": "error",
+                    "status": "error",
+                    "message": "Only JPEG or PNG images are allowed",
+                }
+                return
 
-    # 3. Persist selfie to a temp file for InsightFace.
-    temp_dir = os.path.join(settings.UPLOAD_DIR, "temp_selfies")
-    os.makedirs(temp_dir, exist_ok=True)
-    safe_name = os.path.basename(file.filename or "selfie")
-    temp_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{safe_name}")
-    with open(temp_path, "wb") as buffer:
-        buffer.write(contents)
+            contents = await file.read()
+            if len(contents) == 0:
+                _processing_state[request_id] = {
+                    "type": "error",
+                    "status": "error",
+                    "message": "Empty file",
+                }
+                return
+            if len(contents) > MAX_SELFIE_BYTES:
+                _processing_state[request_id] = {
+                    "type": "error",
+                    "status": "error",
+                    "message": "Image exceeds 10 MB limit",
+                }
+                return
 
-    try:
-        activity.log_activity(
-            db, activity.SELFIE_UPLOADED, event_id=event.id, ip_address=ip,
-            detail={"size": len(contents), "mime": file.content_type},
-        )
+            # Update state: recording consent
+            _processing_state[request_id] = {
+                "type": "progress",
+                "status": "consenting",
+                "message": "Recording consent...",
+                "progress": 20,
+            }
 
-        # 4. Exactly one face required. Run blocking InsightFace inference in a
-        #    threadpool so it does not block the async event loop.
-        faces = await run_in_threadpool(face_engine.get_faces, temp_path)
-        if not faces:
-            raise HTTPException(status_code=400, detail="No face detected in the selfie.")
-        if len(faces) > 1:
-            raise HTTPException(
-                status_code=400,
-                detail="Multiple faces detected. Please upload a selfie with only your face.",
+            db.add(
+                models.GuestConsent(
+                    event_id=event.id,
+                    ip_address=ip,
+                    consent_version=CONSENT_VERSION,
+                    consent_text=event.consent_text or DEFAULT_CONSENT_TEXT,
+                    user_agent=(request.headers.get("user-agent") or "")[:512],
+                )
             )
+            db.commit()
 
-        guest_embedding = faces[0].embedding
+            # Update state: saving file
+            _processing_state[request_id] = {
+                "type": "progress",
+                "status": "uploading",
+                "message": "Saving selfie...",
+                "progress": 30,
+            }
 
-        # 5. Match — STRICTLY within this event only (pgvector on PG, else Python).
-        matched_ids = match_event(db, event.id, guest_embedding, MATCH_THRESHOLD)
-        from ..core.metrics import selfie_matches_total
-        selfie_matches_total.labels("yes" if matched_ids else "no").inc()
-        matched_photos = (
-            db.query(models.Photo).filter(models.Photo.id.in_(matched_ids)).all()
-            if matched_ids else []
-        )
+            # Persist selfie to temp file
+            temp_dir = os.path.join(settings.UPLOAD_DIR, "temp_selfies")
+            os.makedirs(temp_dir, exist_ok=True)
+            safe_name = os.path.basename(file.filename or "selfie")
+            temp_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{safe_name}")
+            with open(temp_path, "wb") as buffer:
+                buffer.write(contents)
 
-        result = [
-            schemas.GuestPhoto(id=p.id, filename=p.filename, url=_photo_url(p, thumb=True))
-            for p in matched_photos
-        ]
+            try:
+                # Update state: detecting faces
+                _processing_state[request_id] = {
+                    "type": "progress",
+                    "status": "detecting",
+                    "message": "Detecting faces in selfie...",
+                    "progress": 50,
+                }
 
-        activity.log_activity(
-            db, activity.FACE_MATCH_COMPLETED, event_id=event.id, ip_address=ip,
-            detail={"matches": len(result)},
-        )
+                activity.log_activity(
+                    db, activity.SELFIE_UPLOADED, event_id=event.id, ip_address=ip,
+                    detail={"size": len(contents), "mime": file.content_type},
+                )
 
-        return schemas.SelfieMatchResponse(count=len(result), photos=result)
+                # Face detection
+                faces = await run_in_threadpool(face_engine.get_faces, temp_path)
+                if not faces:
+                    _processing_state[request_id] = {
+                        "type": "error",
+                        "status": "error",
+                        "message": "No face detected in selfie",
+                    }
+                    return
+                if len(faces) > 1:
+                    _processing_state[request_id] = {
+                        "type": "error",
+                        "status": "error",
+                        "message": "Multiple faces detected. Please use a selfie with only your face",
+                    }
+                    return
 
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+                # Update state: matching
+                _processing_state[request_id] = {
+                    "type": "progress",
+                    "status": "matching",
+                    "message": "Matching your face to event photos...",
+                    "progress": 70,
+                }
+
+                guest_embedding = faces[0].embedding
+                matched_ids = match_event(db, event.id, guest_embedding, MATCH_THRESHOLD)
+
+                from ..core.metrics import selfie_matches_total
+                selfie_matches_total.labels("yes" if matched_ids else "no").inc()
+
+                matched_photos = (
+                    db.query(models.Photo).filter(models.Photo.id.in_(matched_ids)).all()
+                    if matched_ids else []
+                )
+
+                result = [
+                    schemas.GuestPhoto(id=p.id, filename=p.filename, url=_photo_url(p, thumb=True))
+                    for p in matched_photos
+                ]
+
+                # Update state: completed
+                _processing_state[request_id] = {
+                    "type": "completed",
+                    "status": "completed",
+                    "message": f"Found {len(result)} matching photos",
+                    "progress": 100,
+                    "count": len(result),
+                    "photos": [{"id": p.id, "filename": p.filename, "url": p.url} for p in result],
+                }
+
+                activity.log_activity(
+                    db, activity.FACE_MATCH_COMPLETED, event_id=event.id, ip_address=ip,
+                    detail={"matches": len(result)},
+                )
+
+            finally:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+
+        except Exception as e:
+            logger.exception("Selfie processing failed for request_id=%s", request_id)
+            _processing_state[request_id] = {
+                "type": "error",
+                "status": "error",
+                "message": f"Processing failed: {str(e)}",
+            }
+
+    # Start background processing
+    asyncio.create_task(process_selfie_background())
+
+    # Return immediately with request_id
+    return {
+        "request_id": request_id,
+        "message": "Processing started. Connect to processing stream for updates.",
+    }
 
 
 @router.get("/{slug}/photos/{photo_id}/download", response_model=schemas.DownloadResponse)
