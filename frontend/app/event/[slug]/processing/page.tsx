@@ -29,6 +29,7 @@ export default function ProcessingPage() {
   const [error, setError] = useState<string | null>(null);
   const ran = useRef(false);
   const completedHandled = useRef(false);
+  const errorHandled = useRef(false);
 
   // Generate unique request ID for this processing session
   const requestId = useMemo(() => crypto.randomUUID(), []);
@@ -77,7 +78,8 @@ export default function ProcessingPage() {
 
         // Navigate to gallery after short delay
         setTimeout(() => router.replace(`/event/${slug}/gallery`), 800);
-      } else if (streamState.status === 'error') {
+      } else if (streamState.status === 'error' && !errorHandled.current) {
+        errorHandled.current = true;
         setError(streamState.message);
       } else if (streamState.type === 'progress') {
         const mappedStage = STATUS_TO_STAGE[streamState.status] ?? stage;
