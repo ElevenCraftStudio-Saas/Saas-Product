@@ -24,13 +24,10 @@ const STATUS_TO_STAGE: Record<string, number> = {
 export default function ProcessingPage() {
   const router = useRouter();
   const { slug, selfie, setMatches } = useGuestFlow();
-  const [stage, setStage] = useState(0);
-  const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ran = useRef(false);
   const completedHandled = useRef(false);
   const errorHandled = useRef(false);
-  const lastProcessedStatus = useRef<string | null>(null);
 
   // Generate unique request ID for this processing session
   const requestId = useMemo(() => crypto.randomUUID(), []);
@@ -57,43 +54,48 @@ export default function ProcessingPage() {
     return () => {};
   }, [selfie, slug, requestId, router]);
 
-  // Update timeline based on SSE state
+  // Handle terminal SSE events (side effects only). Visual stage is derived below.
   useEffect(() => {
-    if (streamState && streamState.status !== lastProcessedStatus.current) {
-      lastProcessedStatus.current = streamState.status;
-
-      if (streamState.status === 'completed' && !completedHandled.current) {
-        completedHandled.current = true;
-        setStage(MATCH_STAGES.length - 1);
-        setDone(true);
-
-        // Set matches from stream data
-        if (streamState.photos && streamState.photos.length > 0) {
-          setMatches({
-            count: streamState.count || streamState.photos.length,
-            photos: streamState.photos.map(p => ({
-              id: p.id,
-              filename: p.filename,
-              url: p.url,
-            })),
-          });
-        }
-
-        // Navigate to gallery after short delay
-        setTimeout(() => router.replace(`/event/${slug}/gallery`), 800);
-      } else if (streamState.status === 'error' && !errorHandled.current) {
-        errorHandled.current = true;
-        setError(streamState.message);
-      } else if (streamState.type === 'progress') {
-        const mappedStage = STATUS_TO_STAGE[streamState.status] ?? stage;
-        setStage(mappedStage);
-      }
+    if (streamError && !errorHandled.current) {
+      errorHandled.current = true;
+      setError(streamError);
+      return;
     }
-  }, [streamState, slug, router, setMatches, stage]);
+    if (!streamState) return;
 
-  if (streamError) {
-    setError(streamError);
-  }
+    if (streamState.status === 'completed' && !completedHandled.current) {
+      completedHandled.current = true;
+
+      // Push matches into guest-flow context
+      if (streamState.photos && streamState.photos.length > 0) {
+        setMatches({
+          count: streamState.count || streamState.photos.length,
+          photos: streamState.photos.map(p => ({
+            id: p.id,
+            filename: p.filename,
+            url: p.url,
+          })),
+        });
+      }
+
+      // Navigate to gallery after short delay
+      const t = setTimeout(() => router.replace(`/event/${slug}/gallery`), 800);
+      return () => clearTimeout(t);
+    }
+
+    if (streamState.status === 'error' && !errorHandled.current) {
+      errorHandled.current = true;
+      setError(streamState.message);
+    }
+  }, [streamState, streamError, slug, router, setMatches]);
+
+  // Derive timeline stage from stream status — avoids setState-in-effect cascades
+  const done = streamState?.status === 'completed';
+  const stage = done
+    ? MATCH_STAGES.length - 1
+    : streamState
+      ? STATUS_TO_STAGE[streamState.status] ?? 0
+      : 0;
 
   if (error) {
     return (

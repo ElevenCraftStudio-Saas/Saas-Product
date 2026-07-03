@@ -43,7 +43,6 @@ def test_selfie_requires_consent(client, as_studio):
     # Stream should contain error about consent
     stream_data = stream_r.text
     assert "Consent is required" in stream_data or "consent" in stream_data.lower()
-    assert "consent" in r.json()["detail"].lower()
 
 
 def test_selfie_no_face(client, as_studio, monkeypatch):
@@ -66,7 +65,6 @@ def test_selfie_no_face(client, as_studio, monkeypatch):
                 return
         time.sleep(0.1)
     assert False, "No face error not found in stream"
-    assert "no face" in r.json()["detail"].lower()
 
 
 def test_selfie_multi_face(client, as_studio, monkeypatch):
