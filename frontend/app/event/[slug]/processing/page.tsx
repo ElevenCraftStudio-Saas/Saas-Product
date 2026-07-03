@@ -28,6 +28,7 @@ export default function ProcessingPage() {
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ran = useRef(false);
+  const completedHandled = useRef(false);
 
   // Generate unique request ID for this processing session
   const requestId = useMemo(() => crypto.randomUUID(), []);
@@ -57,9 +58,10 @@ export default function ProcessingPage() {
   // Update timeline based on SSE state
   useEffect(() => {
     if (streamState) {
-      if (streamState.status === 'completed') {
-        if (stage !== MATCH_STAGES.length - 1) setStage(MATCH_STAGES.length - 1);
-        if (!done) setDone(true);
+      if (streamState.status === 'completed' && !completedHandled.current) {
+        completedHandled.current = true;
+        setStage(MATCH_STAGES.length - 1);
+        setDone(true);
 
         // Set matches from stream data
         if (streamState.photos && streamState.photos.length > 0) {
@@ -82,7 +84,7 @@ export default function ProcessingPage() {
         if (stage !== mappedStage) setStage(mappedStage);
       }
     }
-  }, [streamState, slug, router, setMatches, stage, done]);
+  }, [streamState, slug, router, setMatches, stage]);
 
   if (streamError) {
     setError(streamError);

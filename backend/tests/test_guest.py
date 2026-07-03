@@ -32,7 +32,7 @@ def test_selfie_requires_consent(client, as_studio):
     r = client.post(
         f"/api/guest/{ev['event_slug']}/selfie",
         files={"file": ("s.png", _png_bytes(), "image/png")},
-        data={"consent": False},
+        data={"consent": "false"},
     )
     assert r.status_code == 400
     assert "consent" in r.json()["detail"].lower()
@@ -45,7 +45,7 @@ def test_selfie_no_face(client, as_studio, monkeypatch):
     r = client.post(
         f"/api/guest/{ev['event_slug']}/selfie",
         files={"file": ("s.png", _png_bytes(), "image/png")},
-        data={"consent": True},
+        data={"consent": "true"},
     )
     assert r.status_code == 400
     assert "no face" in r.json()["detail"].lower()
@@ -58,7 +58,7 @@ def test_selfie_multi_face(client, as_studio, monkeypatch):
     r = client.post(
         f"/api/guest/{ev['event_slug']}/selfie",
         files={"file": ("s.png", _png_bytes(), "image/png")},
-        data={"consent": True},
+        data={"consent": "true"},
     )
     assert r.status_code == 400
     assert "multiple" in r.json()["detail"].lower()
