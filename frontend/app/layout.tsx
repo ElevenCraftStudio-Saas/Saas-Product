@@ -12,6 +12,9 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "WedFind AI — Wedding Photo Finder",
   description: "AI-powered wedding photo discovery: scan, selfie, and find only your photos.",
+  icons: {
+    icon: "/favicon.png",
+  },
 };
 
 export default function RootLayout({
