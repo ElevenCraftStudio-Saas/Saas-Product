@@ -2,7 +2,7 @@
 import type { AxiosProgressEvent } from 'axios';
 import api, { httpGet } from '@/lib/api';
 import { toApiError } from '@/lib/errors';
-import type { GuestEvent, SelfieMatchResult } from '@/types/models';
+import type { GuestEvent } from '@/types/models';
 
 export function getGuestEvent(slug: string): Promise<GuestEvent> {
   return httpGet<GuestEvent>(`/guest/${slug}`);

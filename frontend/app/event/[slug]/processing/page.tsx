@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -30,7 +30,7 @@ export default function ProcessingPage() {
   const ran = useRef(false);
 
   // Generate unique request ID for this processing session
-  const requestId = useRef(crypto.randomUUID()).current;
+  const requestId = useMemo(() => crypto.randomUUID(), []);
 
   // SSE hook for real-time updates
   const { state: streamState, error: streamError } = useProcessingStream(slug, true, requestId);
@@ -58,8 +58,8 @@ export default function ProcessingPage() {
   useEffect(() => {
     if (streamState) {
       if (streamState.status === 'completed') {
-        setStage(MATCH_STAGES.length - 1);
-        setDone(true);
+        if (stage !== MATCH_STAGES.length - 1) setStage(MATCH_STAGES.length - 1);
+        if (!done) setDone(true);
 
         // Set matches from stream data
         if (streamState.photos && streamState.photos.length > 0) {
@@ -79,10 +79,10 @@ export default function ProcessingPage() {
         setError(streamState.message);
       } else if (streamState.type === 'progress') {
         const mappedStage = STATUS_TO_STAGE[streamState.status] ?? stage;
-        setStage(mappedStage);
+        if (stage !== mappedStage) setStage(mappedStage);
       }
     }
-  }, [streamState, slug, router, setMatches, stage]);
+  }, [streamState, slug, router, setMatches, stage, done]);
 
   if (streamError) {
     setError(streamError);

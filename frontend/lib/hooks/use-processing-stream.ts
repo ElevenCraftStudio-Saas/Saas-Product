@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
 interface ProcessingState {
   type: 'progress' | 'completed' | 'error' | 'timeout';
