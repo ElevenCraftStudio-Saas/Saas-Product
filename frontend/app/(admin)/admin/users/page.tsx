@@ -68,8 +68,8 @@ export default function AdminUsersPage() {
         <Card>
           <CardContent className="pt-6 space-y-2">
             <p className="text-sm font-medium">Agent token for {newToken.user} — copy now, it won&apos;t be shown again:</p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 break-all rounded-md bg-slate-100 px-3 py-2 text-xs">{newToken.token}</code>
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="min-w-0 flex-1 basis-full break-all rounded-md bg-muted px-3 py-2 text-xs sm:basis-auto">{newToken.token}</code>
               <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(newToken.token); toast.success('Copied'); }}>
                 <Copy className="w-4 h-4" />
               </Button>
@@ -79,18 +79,19 @@ export default function AdminUsersPage() {
         </Card>
       )}
 
-      <Card>
+      {/* Desktop table */}
+      <Card className="hidden lg:block">
         <CardContent className="pt-6 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-slate-500 border-b">
-                <th className="py-2 pr-4">User</th>
-                <th className="py-2 px-2">Role</th>
-                <th className="py-2 px-2">Events</th>
-                <th className="py-2 px-2">Event limit</th>
-                <th className="py-2 px-2">Storage</th>
-                <th className="py-2 px-2">Storage limit (MB)</th>
-                <th className="py-2 px-2">Actions</th>
+              <tr className="text-left text-muted-foreground border-b">
+                <th className="py-2 pr-4 font-medium">User</th>
+                <th className="py-2 px-2 font-medium">Role</th>
+                <th className="py-2 px-2 font-medium">Events</th>
+                <th className="py-2 px-2 font-medium">Event limit</th>
+                <th className="py-2 px-2 font-medium">Storage</th>
+                <th className="py-2 px-2 font-medium">Storage limit (MB)</th>
+                <th className="py-2 px-2 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -98,24 +99,15 @@ export default function AdminUsersPage() {
                 <tr key={u.id} className="border-b last:border-0 align-top">
                   <td className="py-2 pr-4">
                     <p className="font-medium">{u.name || u.email || `#${u.id}`}</p>
-                    <p className="text-xs text-slate-400">{u.email}</p>
+                    <p className="text-xs text-muted-foreground">{u.email}</p>
                   </td>
-                  <td className="py-2 px-2">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${u.role === 'admin' ? 'bg-amber-100 text-amber-700' : 'bg-primary/10 text-primary'}`}>{u.role}</span>
-                  </td>
+                  <td className="py-2 px-2"><RoleBadge role={u.role} /></td>
                   <td className="py-2 px-2 whitespace-nowrap">{u.event_count} / {u.effective_limit}</td>
                   <td className="py-2 px-2"><NumEditor value={u.max_events} onSave={(v) => setLimit.mutate({ id: u.id, max_events: v })} disabled={setLimit.isPending} /></td>
                   <td className="py-2 px-2 whitespace-nowrap">{u.storage_used_mb} / {u.effective_storage_limit_mb} MB</td>
                   <td className="py-2 px-2"><NumEditor value={u.storage_limit_mb} onSave={(v) => setStorage.mutate({ id: u.id, storage_limit_mb: v })} disabled={setStorage.isPending} /></td>
                   <td className="py-2 px-2">
-                    <div className="flex flex-col gap-1">
-                      {u.role === 'admin'
-                        ? <Button size="sm" variant="outline" onClick={() => setRole.mutate({ id: u.id, role: 'user' })} disabled={setRole.isPending}>Demote to User</Button>
-                        : <Button size="sm" onClick={() => setRole.mutate({ id: u.id, role: 'admin' })} disabled={setRole.isPending}>Promote to Admin</Button>}
-                      {u.role === 'user' && (
-                        <Button size="sm" variant="ghost" onClick={() => createToken.mutate({ id: u.id, label: u.email || `#${u.id}` })} disabled={createToken.isPending}>Create Agent Token</Button>
-                      )}
-                    </div>
+                    <UserActions user={u} setRole={setRole} createToken={createToken} />
                   </td>
                 </tr>
               ))}
@@ -123,6 +115,77 @@ export default function AdminUsersPage() {
           </table>
         </CardContent>
       </Card>
+
+      {/* Mobile / tablet cards */}
+      <div className="space-y-3 lg:hidden">
+        {users?.map((u) => (
+          <Card key={u.id}>
+            <CardContent className="pt-6 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-medium truncate">{u.name || u.email || `#${u.id}`}</p>
+                  <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                </div>
+                <RoleBadge role={u.role} />
+              </div>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                <dt className="text-muted-foreground">Events</dt>
+                <dd className="text-right">{u.event_count} / {u.effective_limit}</dd>
+                <dt className="text-muted-foreground">Storage</dt>
+                <dd className="text-right">{u.storage_used_mb} / {u.effective_storage_limit_mb} MB</dd>
+              </dl>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">Event limit</span>
+                  <NumEditor value={u.max_events} onSave={(v) => setLimit.mutate({ id: u.id, max_events: v })} disabled={setLimit.isPending} />
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">Storage limit (MB)</span>
+                  <NumEditor value={u.storage_limit_mb} onSave={(v) => setStorage.mutate({ id: u.id, storage_limit_mb: v })} disabled={setStorage.isPending} />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <UserActions user={u} setRole={setRole} createToken={createToken} />
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RoleBadge({ role }: { role: string }) {
+  return (
+    <span
+      className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${
+        role === 'admin'
+          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
+          : 'bg-primary/10 text-primary'
+      }`}
+    >
+      {role}
+    </span>
+  );
+}
+
+function UserActions({
+  user: u,
+  setRole,
+  createToken,
+}: {
+  user: AdminUser;
+  setRole: { mutate: (v: { id: number; role: string }) => void; isPending: boolean };
+  createToken: { mutate: (v: { id: number; label: string }) => void; isPending: boolean };
+}) {
+  return (
+    <div className="flex flex-col gap-1 lg:flex-col max-lg:flex-row max-lg:flex-wrap">
+      {u.role === 'admin'
+        ? <Button size="sm" variant="outline" onClick={() => setRole.mutate({ id: u.id, role: 'user' })} disabled={setRole.isPending}>Demote to User</Button>
+        : <Button size="sm" onClick={() => setRole.mutate({ id: u.id, role: 'admin' })} disabled={setRole.isPending}>Promote to Admin</Button>}
+      {u.role === 'user' && (
+        <Button size="sm" variant="ghost" onClick={() => createToken.mutate({ id: u.id, label: u.email || `#${u.id}` })} disabled={createToken.isPending}>Create Agent Token</Button>
+      )}
     </div>
   );
 }

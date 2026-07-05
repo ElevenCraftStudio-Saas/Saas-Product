@@ -19,21 +19,24 @@ export default function AdminAuditPage() {
         <CardContent className="pt-6 overflow-x-auto">
           {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : (
             <table className="w-full text-sm">
-              <thead><tr className="text-left text-slate-500 border-b">
-                <th className="py-2 pr-4">Time</th><th className="py-2 px-2">Action</th><th className="py-2 px-2">Event</th>
-                <th className="py-2 px-2">IP</th><th className="py-2 px-2">Detail</th>
+              <thead><tr className="text-left text-muted-foreground border-b">
+                <th className="py-2 pr-4 font-medium">Time</th><th className="py-2 px-2 font-medium">Action</th><th className="py-2 px-2 font-medium max-sm:hidden">Event</th>
+                <th className="py-2 px-2 font-medium max-md:hidden">IP</th><th className="py-2 px-2 font-medium">Detail</th>
               </tr></thead>
               <tbody>
                 {data?.map((a) => (
-                  <tr key={a.id} className="border-b last:border-0">
-                    <td className="py-2 pr-4 text-slate-400 whitespace-nowrap">{new Date(a.created_at).toLocaleString()}</td>
+                  <tr key={a.id} className="border-b last:border-0 align-top">
+                    <td className="py-2 pr-4 text-muted-foreground whitespace-nowrap">{new Date(a.created_at).toLocaleString()}</td>
                     <td className="py-2 px-2 font-mono text-xs">{a.action}</td>
-                    <td className="py-2 px-2">{a.event_id ?? '—'}</td>
-                    <td className="py-2 px-2 font-mono text-xs">{a.ip_address || '—'}</td>
-                    <td className="py-2 px-2 text-xs text-slate-500">{a.detail ? JSON.stringify(a.detail) : '—'}</td>
+                    <td className="py-2 px-2 max-sm:hidden">{a.event_id ?? '—'}</td>
+                    <td className="py-2 px-2 font-mono text-xs max-md:hidden">{a.ip_address || '—'}</td>
+                    <td className="py-2 px-2 text-xs text-muted-foreground">
+                      {/* JSON blobs get long — wrap instead of forcing a huge horizontal scroll. */}
+                      <span className="block max-w-[40ch] break-all lg:max-w-[60ch]">{a.detail ? JSON.stringify(a.detail) : '—'}</span>
+                    </td>
                   </tr>
                 ))}
-                {!data?.length && <tr><td colSpan={5} className="py-4 text-slate-400">No activity yet.</td></tr>}
+                {!data?.length && <tr><td colSpan={5} className="py-4 text-muted-foreground">No activity yet.</td></tr>}
               </tbody>
             </table>
           )}

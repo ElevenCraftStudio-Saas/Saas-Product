@@ -13,7 +13,7 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
   return (
     <Card><CardContent className="pt-6"><div className="flex items-center gap-3">
       <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">{icon}</div>
-      <div><p className="text-2xl font-bold">{value}</p><p className="text-xs text-slate-500">{label}</p></div>
+      <div><p className="text-2xl font-bold">{value}</p><p className="text-xs text-muted-foreground">{label}</p></div>
     </div></CardContent></Card>
   );
 }
@@ -39,7 +39,7 @@ export default function AdminAnalyticsPage() {
             <CardHeader><CardTitle className="text-lg">Per event</CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead><tr className="text-left text-slate-500 border-b">
+                <thead><tr className="text-left text-muted-foreground border-b">
                   <th className="py-2 pr-4">Event</th><th className="py-2 px-2">Photos</th><th className="py-2 px-2">Consents</th>
                   <th className="py-2 px-2">Scans</th><th className="py-2 px-2">Matches</th><th className="py-2 px-2">Downloads</th>
                 </tr></thead>
@@ -51,7 +51,7 @@ export default function AdminAnalyticsPage() {
                       <td className="py-2 px-2">{e.scans}</td><td className="py-2 px-2">{e.matches}</td><td className="py-2 px-2">{e.downloads}</td>
                     </tr>
                   ))}
-                  {!data.per_event.length && <tr><td colSpan={6} className="py-4 text-slate-400">No events yet.</td></tr>}
+                  {!data.per_event.length && <tr><td colSpan={6} className="py-4 text-muted-foreground">No events yet.</td></tr>}
                 </tbody>
               </table>
             </CardContent>

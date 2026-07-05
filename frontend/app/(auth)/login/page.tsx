@@ -85,7 +85,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-slate-50">
+    <div className="flex items-center justify-center min-h-screen bg-muted/30 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 text-center">
           <CardTitle className="text-3xl font-bold">WedFind AI</CardTitle>
@@ -133,7 +133,7 @@ export default function LoginPage() {
               <span className="w-full border-t" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-slate-400">or</span>
+              <span className="bg-card px-2 text-muted-foreground">or</span>
             </div>
           </div>
 
@@ -144,7 +144,7 @@ export default function LoginPage() {
         <CardFooter className="flex justify-center border-t pt-6">
           <button
             type="button"
-            className="text-sm text-slate-500 hover:text-slate-900"
+            className="text-sm text-muted-foreground hover:text-foreground"
             onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
           >
             {mode === 'login' ? "No account? Sign up" : 'Have an account? Login'}
