@@ -7,6 +7,7 @@ GET  /api/guest/{slug}/processing-stream           -> SSE: real-time selfie proc
 """
 import os
 import io
+import time
 import uuid
 import zipfile
 import json
@@ -19,7 +20,7 @@ from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models import models
 from ..schemas import schemas
 from ..services.face_engine import face_engine
@@ -27,6 +28,7 @@ from ..services.matching import match_event
 from ..services.s3_service import s3_service
 from ..services import activity
 from ..core.limiter import limiter
+from ..core import signing
 
 router = APIRouter()
 logger = logging.getLogger("wedfind.guest")
@@ -39,14 +41,49 @@ MAX_SELFIE_BYTES = 10 * 1024 * 1024  # 10 MB
 ALLOWED_MIME = {"image/jpeg", "image/png"}
 DOWNLOAD_URL_TTL = 3600  # seconds
 
-# In-memory processing state for SSE (use Redis in production for multi-instance)
-_processing_state: dict[str, dict] = {}
+# In-memory processing state for SSE (single-process only — gunicorn runs -w 1;
+# move to Redis before scaling web replicas). Entries are (state, monotonic ts)
+# and are lazily evicted after STATE_TTL_SECONDS so clients that never connect
+# can't grow the dict forever.
+STATE_TTL_SECONDS = 600
+_processing_state: dict[str, tuple[dict, float]] = {}
+
+
+def _evict_stale() -> None:
+    now = time.monotonic()
+    for key in [k for k, (_, ts) in _processing_state.items() if now - ts > STATE_TTL_SECONDS]:
+        _processing_state.pop(key, None)
+
+
+def _state_put(request_id: str, state: dict) -> None:
+    _evict_stale()
+    _processing_state[request_id] = (state, time.monotonic())
+
+
+def _state_get(request_id: str) -> dict | None:
+    item = _processing_state.get(request_id)
+    return item[0] if item else None
+
+
+def _state_pop(request_id: str) -> None:
+    _processing_state.pop(request_id, None)
+
+
+def _require_uuid(request_id: str) -> str:
+    """Guests must use unguessable request ids — a guessable id would let one
+    guest subscribe to another's processing stream (which carries presigned
+    photo URLs)."""
+    try:
+        return str(uuid.UUID(request_id))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=422, detail="request_id must be a UUID")
 
 
 def _client_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
+    # Deliberately NOT reading X-Forwarded-For here: the header is client-
+    # spoofable and this IP is the identity for consent records and the
+    # right-to-erasure scope. Behind the proxy, gunicorn/uvicorn rewrites
+    # request.client from Forwarded headers per FORWARDED_ALLOW_IPS.
     return request.client.host if request.client else "unknown"
 
 
@@ -65,6 +102,7 @@ def _get_event_or_404(slug: str, db: Session) -> models.Event:
 
 
 @router.get("/{slug}", response_model=schemas.GuestEventResponse)
+@limiter.limit("30/minute")
 def get_public_event(slug: str, request: Request, db: Session = Depends(get_db)):
     event = _get_event_or_404(slug, db)
 
@@ -83,35 +121,42 @@ def get_public_event(slug: str, request: Request, db: Session = Depends(get_db))
 async def processing_stream(slug: str, request_id: str, request: Request):
     """SSE endpoint for real-time selfie processing updates.
 
-    Client sends request_id in query param, receives progress events.
+    Client sends its (UUID) request_id in a query param, receives progress
+    frames. The stream ends on a terminal state (completed/error), after 10s
+    with no state at all (client connected before/without a selfie POST), or
+    at the 60s hard cap.
     """
+    request_id = _require_uuid(request_id)
+
     async def event_generator():
+        timeout = 60          # hard cap
+        empty_grace = 10      # end early if no state ever shows up
+        start = asyncio.get_event_loop().time()
+        last_sent: str | None = None
         try:
-            # Send initial state
-            state = _processing_state.get(request_id, {})
-            if state:
-                yield f"data: {json.dumps(state)}\n\n"
-
-            # Stream updates until completion or timeout
-            timeout = 60  # 60 seconds max
-            start = asyncio.get_event_loop().time()
-
             while True:
-                if asyncio.get_event_loop().time() - start > timeout:
+                elapsed = asyncio.get_event_loop().time() - start
+                if elapsed > timeout:
                     yield f"data: {json.dumps({'type': 'timeout'})}\n\n"
                     break
 
-                state = _processing_state.get(request_id, {})
-                if state:
-                    yield f"data: {json.dumps(state)}\n\n"
-
-                if state.get("status") == "completed":
-                    break
+                state = _state_get(request_id)
+                if state is None:
+                    if last_sent is None and elapsed > empty_grace:
+                        yield f"data: {json.dumps({'type': 'timeout'})}\n\n"
+                        break
+                else:
+                    frame = json.dumps(state)
+                    if frame != last_sent:
+                        yield f"data: {frame}\n\n"
+                        last_sent = frame
+                    if state.get("status") in ("completed", "error"):
+                        break
 
                 await asyncio.sleep(0.5)  # Poll every 500ms
 
-            # Clean up completed state
-            _processing_state.pop(request_id, None)
+            # Terminal state delivered (or timed out) — drop it.
+            _state_pop(request_id)
 
         except asyncio.CancelledError:
             logger.debug("SSE client disconnected for request_id=%s", request_id)
@@ -142,163 +187,166 @@ async def match_selfie(
     Returns request_id immediately, processes in background.
     Client connects to /{slug}/processing-stream?request_id={id} for updates.
     """
+    request_id = _require_uuid(request_id)
     event = _get_event_or_404(slug, db)
-    ip = _client_ip(request)
+    event_id, event_consent_text = event.id, event.consent_text
 
-    # Initialize processing state
-    _processing_state[request_id] = {
+    # Everything the background task needs is captured NOW — the request-scoped
+    # db session, UploadFile and Request all die once this handler returns.
+    ip = _client_ip(request)
+    user_agent = (request.headers.get("user-agent") or "")[:512]
+    content_type = file.content_type
+    filename = os.path.basename(file.filename or "selfie")
+
+    _state_put(request_id, {
         "type": "progress",
-        "status": "starting",
-        "message": "Initializing...",
-        "progress": 0,
-    }
+        "status": "validating",
+        "message": "Validating consent and file...",
+        "progress": 10,
+    })
+
+    # Cheap validations happen inline; errors still surface via SSE so the
+    # client contract (200 + stream) is unchanged.
+    if not consent:
+        _state_put(request_id, {
+            "type": "error", "status": "error", "message": "Consent is required",
+        })
+        return {"request_id": request_id, "message": "Processing started."}
+
+    if content_type not in ALLOWED_MIME:
+        _state_put(request_id, {
+            "type": "error", "status": "error",
+            "message": "Only JPEG or PNG images are allowed",
+        })
+        return {"request_id": request_id, "message": "Processing started."}
+
+    contents = await file.read()
+    if len(contents) == 0:
+        _state_put(request_id, {
+            "type": "error", "status": "error", "message": "Empty file",
+        })
+        return {"request_id": request_id, "message": "Processing started."}
+    if len(contents) > MAX_SELFIE_BYTES:
+        _state_put(request_id, {
+            "type": "error", "status": "error",
+            "message": "Image exceeds 10 MB limit",
+        })
+        return {"request_id": request_id, "message": "Processing started."}
 
     async def process_selfie_background():
+        # Own session: the request's Depends(get_db) session is closed by the
+        # time this task runs.
+        task_db = SessionLocal()
         try:
-            # Update state: validating
-            _processing_state[request_id] = {
-                "type": "progress",
-                "status": "validating",
-                "message": "Validating consent and file...",
-                "progress": 10,
-            }
-
-            # 1. Consent validation
-            if not consent:
-                _processing_state[request_id] = {
-                    "type": "error",
-                    "status": "error",
-                    "message": "Consent is required",
-                }
-                return
-
-            # 2. File validation
-            if file.content_type not in ALLOWED_MIME:
-                _processing_state[request_id] = {
-                    "type": "error",
-                    "status": "error",
-                    "message": "Only JPEG or PNG images are allowed",
-                }
-                return
-
-            contents = await file.read()
-            if len(contents) == 0:
-                _processing_state[request_id] = {
-                    "type": "error",
-                    "status": "error",
-                    "message": "Empty file",
-                }
-                return
-            if len(contents) > MAX_SELFIE_BYTES:
-                _processing_state[request_id] = {
-                    "type": "error",
-                    "status": "error",
-                    "message": "Image exceeds 10 MB limit",
-                }
-                return
-
-            # Update state: recording consent
-            _processing_state[request_id] = {
+            _state_put(request_id, {
                 "type": "progress",
                 "status": "consenting",
                 "message": "Recording consent...",
                 "progress": 20,
-            }
+            })
 
-            db.add(
+            task_db.add(
                 models.GuestConsent(
-                    event_id=event.id,
+                    event_id=event_id,
                     ip_address=ip,
                     consent_version=CONSENT_VERSION,
-                    consent_text=event.consent_text or DEFAULT_CONSENT_TEXT,
-                    user_agent=(request.headers.get("user-agent") or "")[:512],
+                    consent_text=event_consent_text or DEFAULT_CONSENT_TEXT,
+                    user_agent=user_agent,
                 )
             )
-            db.commit()
+            task_db.commit()
 
-            # Update state: saving file
-            _processing_state[request_id] = {
+            _state_put(request_id, {
                 "type": "progress",
                 "status": "uploading",
                 "message": "Saving selfie...",
                 "progress": 30,
-            }
+            })
 
             # Persist selfie to temp file
             temp_dir = os.path.join(settings.UPLOAD_DIR, "temp_selfies")
             os.makedirs(temp_dir, exist_ok=True)
-            safe_name = os.path.basename(file.filename or "selfie")
-            temp_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{safe_name}")
+            temp_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{filename}")
             with open(temp_path, "wb") as buffer:
                 buffer.write(contents)
 
             try:
-                # Update state: detecting faces
-                _processing_state[request_id] = {
+                _state_put(request_id, {
                     "type": "progress",
                     "status": "detecting",
                     "message": "Detecting faces in selfie...",
                     "progress": 50,
-                }
+                })
 
                 activity.log_activity(
-                    db, activity.SELFIE_UPLOADED, event_id=event.id, ip_address=ip,
-                    detail={"size": len(contents), "mime": file.content_type},
+                    task_db, activity.SELFIE_UPLOADED, event_id=event_id, ip_address=ip,
+                    detail={"size": len(contents), "mime": content_type},
                 )
 
                 # Face detection
                 faces = await run_in_threadpool(face_engine.get_faces, temp_path)
                 if not faces:
-                    _processing_state[request_id] = {
-                        "type": "error",
-                        "status": "error",
+                    _state_put(request_id, {
+                        "type": "error", "status": "error",
                         "message": "No face detected in selfie",
-                    }
+                    })
                     return
                 if len(faces) > 1:
-                    _processing_state[request_id] = {
-                        "type": "error",
-                        "status": "error",
+                    _state_put(request_id, {
+                        "type": "error", "status": "error",
                         "message": "Multiple faces detected. Please use a selfie with only your face",
-                    }
+                    })
                     return
 
-                # Update state: matching
-                _processing_state[request_id] = {
+                _state_put(request_id, {
                     "type": "progress",
                     "status": "matching",
                     "message": "Matching your face to event photos...",
                     "progress": 70,
-                }
+                })
 
                 guest_embedding = faces[0].embedding
-                matched_ids = match_event(db, event.id, guest_embedding, MATCH_THRESHOLD)
+                matched_ids = match_event(task_db, event_id, guest_embedding, MATCH_THRESHOLD)
 
                 from ..core.metrics import selfie_matches_total
                 selfie_matches_total.labels("yes" if matched_ids else "no").inc()
 
                 matched_photos = (
-                    db.query(models.Photo).filter(models.Photo.id.in_(matched_ids)).all()
+                    task_db.query(models.Photo).filter(models.Photo.id.in_(matched_ids)).all()
                     if matched_ids else []
                 )
 
+                # Each matched photo gets a signed download token — the ONLY
+                # way to use the download endpoints (anti-scraping).
                 result = [
-                    schemas.GuestPhoto(id=p.id, filename=p.filename, url=_photo_url(p, thumb=True))
+                    schemas.GuestPhoto(
+                        id=p.id,
+                        filename=p.filename,
+                        url=_photo_url(p, thumb=True),
+                        download_token=signing.sign_download(event_id, p.id),
+                    )
                     for p in matched_photos
                 ]
 
-                # Update state: completed
-                _processing_state[request_id] = {
+                _state_put(request_id, {
                     "type": "completed",
                     "status": "completed",
                     "message": f"Found {len(result)} matching photos",
                     "progress": 100,
                     "count": len(result),
-                    "photos": [{"id": p.id, "filename": p.filename, "url": p.url} for p in result],
-                }
+                    "photos": [
+                        {
+                            "id": p.id,
+                            "filename": p.filename,
+                            "url": p.url,
+                            "download_token": p.download_token,
+                        }
+                        for p in result
+                    ],
+                })
 
                 activity.log_activity(
-                    db, activity.FACE_MATCH_COMPLETED, event_id=event.id, ip_address=ip,
+                    task_db, activity.FACE_MATCH_COMPLETED, event_id=event_id, ip_address=ip,
                     detail={"matches": len(result)},
                 )
 
@@ -308,11 +356,13 @@ async def match_selfie(
 
         except Exception as e:
             logger.exception("Selfie processing failed for request_id=%s", request_id)
-            _processing_state[request_id] = {
+            _state_put(request_id, {
                 "type": "error",
                 "status": "error",
                 "message": f"Processing failed: {str(e)}",
-            }
+            })
+        finally:
+            task_db.close()
 
     # Start background processing
     asyncio.create_task(process_selfie_background())
@@ -325,8 +375,21 @@ async def match_selfie(
 
 
 @router.get("/{slug}/photos/{photo_id}/download", response_model=schemas.DownloadResponse)
-def download_photo(slug: str, photo_id: int, request: Request, db: Session = Depends(get_db)):
+@limiter.limit("30/minute")
+def download_photo(
+    slug: str,
+    photo_id: int,
+    token: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     event = _get_event_or_404(slug, db)
+
+    # Only photos the guest's selfie matched carry a valid token — photo ids
+    # are sequential, so without this anyone with the slug could scrape the
+    # whole gallery.
+    if not signing.verify_download(token, event.id, photo_id):
+        raise HTTPException(status_code=403, detail="Invalid or expired download token.")
 
     # Event isolation: the photo MUST belong to this event's slug.
     photo = (
@@ -356,18 +419,27 @@ def download_photo(slug: str, photo_id: int, request: Request, db: Session = Dep
 def download_zip(
     slug: str,
     request: Request,
-    body: schemas.PhotoIdsRequest,
+    body: schemas.ZipRequest,
     db: Session = Depends(get_db),
 ):
-    """Stream a ZIP of the requested photos (event-isolated)."""
+    """Stream a ZIP of the requested photos (token-authorized, event-isolated)."""
     event = _get_event_or_404(slug, db)
-    if not body.photo_ids:
+    if not body.photos:
         raise HTTPException(status_code=400, detail="No photos selected.")
+
+    # Every photo needs a valid match token (anti-scraping, same as single
+    # download).
+    verified_ids = [
+        item.id for item in body.photos
+        if signing.verify_download(item.token, event.id, item.id)
+    ]
+    if not verified_ids:
+        raise HTTPException(status_code=403, detail="Invalid or expired download tokens.")
 
     # Only photos that belong to THIS event are included (isolation).
     photos = (
         db.query(models.Photo)
-        .filter(models.Photo.id.in_(body.photo_ids), models.Photo.event_id == event.id)
+        .filter(models.Photo.id.in_(verified_ids), models.Photo.event_id == event.id)
         .all()
     )
     if not photos:

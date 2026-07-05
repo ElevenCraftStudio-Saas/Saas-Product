@@ -74,16 +74,17 @@ export const handlers = [
     HttpResponse.json({ id: 1, title: 'Alpha Wedding', description: 'Welcome', event_date: '2030-01-01T00:00:00Z', event_slug: String(params.slug), url: 'https://s3/qr/a.png' }),
   ),
 
+  // Selfie POST returns immediately; matches arrive via the SSE stream.
   http.post(`${API}/guest/:slug/selfie`, () =>
-    HttpResponse.json({ count: 2, photos: [
-      { id: 10, filename: 'a.jpg', url: 'https://s3/t/a.webp' },
-      { id: 11, filename: 'b.jpg', url: 'https://s3/t/b.webp' },
-    ] }),
+    HttpResponse.json({ request_id: 'req-1', message: 'Processing started.' }),
   ),
 
-  http.get(`${API}/guest/:slug/photos/:photoId/download`, () =>
-    HttpResponse.json({ url: 'https://s3/original/a.jpg', expires_in: 3600 }),
-  ),
+  // Download requires a valid match token (anti-scraping).
+  http.get(`${API}/guest/:slug/photos/:photoId/download`, ({ request }) => {
+    const token = new URL(request.url).searchParams.get('token');
+    if (!token) return HttpResponse.json({ detail: 'Invalid or expired download token.' }, { status: 403 });
+    return HttpResponse.json({ url: 'https://s3/original/a.jpg', expires_in: 3600 });
+  }),
 
   http.post(`${API}/guest/:slug/download-zip`, () =>
     HttpResponse.arrayBuffer(new ArrayBuffer(8), { headers: { 'Content-Type': 'application/zip' } }),

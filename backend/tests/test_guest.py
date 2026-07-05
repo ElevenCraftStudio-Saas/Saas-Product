@@ -1,5 +1,6 @@
 import io
-import time
+import uuid
+from app.core import signing
 from app.routers import guest as guest_router
 
 
@@ -13,6 +14,10 @@ def _png_bytes():
     buf = io.BytesIO()
     Image.new("RGB", (40, 40)).save(buf, "PNG")
     return buf.getvalue()
+
+
+def _uuid():
+    return str(uuid.uuid4())
 
 
 def _create_event(client):
@@ -30,68 +35,59 @@ def test_public_event_view(client, as_studio):
 def test_selfie_requires_consent(client, as_studio):
     ev = _create_event(client)
     client.app.dependency_overrides.clear()
+    rid = _uuid()
     r = client.post(
         f"/api/guest/{ev['event_slug']}/selfie",
         files={"file": ("s.png", _png_bytes(), "image/png")},
-        data={"consent": "false", "request_id": "test-123"},
+        data={"consent": "false", "request_id": rid},
     )
-    # Endpoint returns 200 immediately, validation happens async via SSE
+    # Endpoint returns 200 immediately, validation surfaces via SSE
     assert r.status_code == 200
-    # Poll processing stream to check for consent error
-    stream_r = client.get(f"/api/guest/{ev['event_slug']}/processing-stream?request_id=test-123")
+    stream_r = client.get(f"/api/guest/{ev['event_slug']}/processing-stream?request_id={rid}")
     assert stream_r.status_code == 200
-    # Stream should contain error about consent
-    stream_data = stream_r.text
-    assert "Consent is required" in stream_data or "consent" in stream_data.lower()
+    assert "consent" in stream_r.text.lower()
 
 
 def test_selfie_no_face(client, as_studio, monkeypatch):
     ev = _create_event(client)
     client.app.dependency_overrides.clear()
     monkeypatch.setattr(guest_router.face_engine, "get_faces", lambda p: [])
+    rid = _uuid()
     r = client.post(
         f"/api/guest/{ev['event_slug']}/selfie",
         files={"file": ("s.png", _png_bytes(), "image/png")},
-        data={"consent": "true", "request_id": "test-no-face"},
+        data={"consent": "true", "request_id": rid},
     )
-    # Endpoint returns 200 immediately, validation happens async via SSE
     assert r.status_code == 200
-    # Poll processing stream to check for no face error
-    for _ in range(10):  # Poll for up to 1 second
-        stream_r = client.get(f"/api/guest/{ev['event_slug']}/processing-stream?request_id=test-no-face")
-        if stream_r.status_code == 200:
-            stream_data = stream_r.text
-            if "no face" in stream_data.lower() or "error" in stream_data.lower():
-                return
-        time.sleep(0.1)
-    assert False, "No face error not found in stream"
+    # Stream ends on the terminal error state (no polling loop needed).
+    stream_r = client.get(f"/api/guest/{ev['event_slug']}/processing-stream?request_id={rid}")
+    assert stream_r.status_code == 200
+    assert "no face" in stream_r.text.lower()
 
 
 def test_selfie_multi_face(client, as_studio, monkeypatch):
     ev = _create_event(client)
     client.app.dependency_overrides.clear()
     monkeypatch.setattr(guest_router.face_engine, "get_faces", lambda p: [_Face([0.1]), _Face([0.2])])
+    rid = _uuid()
     r = client.post(
         f"/api/guest/{ev['event_slug']}/selfie",
         files={"file": ("s.png", _png_bytes(), "image/png")},
-        data={"consent": "true", "request_id": "test-multi-face"},
+        data={"consent": "true", "request_id": rid},
     )
-    # Endpoint returns 200 immediately, validation happens async via SSE
     assert r.status_code == 200
-    # Poll processing stream to check for multiple faces error
-    for _ in range(10):  # Poll for up to 1 second
-        stream_r = client.get(f"/api/guest/{ev['event_slug']}/processing-stream?request_id=test-multi-face")
-        if stream_r.status_code == 200:
-            stream_data = stream_r.text
-            if "multiple" in stream_data.lower() or "error" in stream_data.lower():
-                return
-        time.sleep(0.1)
-    assert False, "Multiple faces error not found in stream"
-    assert "multiple" in r.json()["detail"].lower()
+    stream_r = client.get(f"/api/guest/{ev['event_slug']}/processing-stream?request_id={rid}")
+    assert stream_r.status_code == 200
+    assert "multiple" in stream_r.text.lower()
 
 
 def test_download_event_isolation(client, as_studio):
     ev = _create_event(client)
     client.app.dependency_overrides.clear()
-    r = client.get(f"/api/guest/{ev['event_slug']}/photos/999999/download")
+    # Even with a validly-signed token, a photo that isn't in this event is 404.
+    token = signing.sign_download(ev["id"], 999999)
+    r = client.get(
+        f"/api/guest/{ev['event_slug']}/photos/999999/download",
+        params={"token": token},
+    )
     assert r.status_code == 404

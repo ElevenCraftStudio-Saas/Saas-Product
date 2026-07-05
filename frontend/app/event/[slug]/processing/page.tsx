@@ -74,6 +74,7 @@ export default function ProcessingPage() {
             id: p.id,
             filename: p.filename,
             url: p.url,
+            download_token: p.download_token,
           })),
         });
       }

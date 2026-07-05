@@ -113,12 +113,13 @@ def test_purge_skips_non_expired(client, as_admin):
 
 def test_erase_removes_only_caller_ip(client, as_admin):
     ev = _create_event(client)
-    _add_consent(ev["id"], ip="9.9.9.9")
-    _add_consent(ev["id"], ip="8.8.8.8")
+    _add_consent(ev["id"], ip="testclient")  # the caller's real (socket) IP
+    _add_consent(ev["id"], ip="8.8.8.8")     # someone else's record
 
     client.app.dependency_overrides.clear()  # erase is public
-    # caller IP defaults to testclient → not 9.9.9.9, so send x-forwarded-for
-    r = client.post(f"/api/guest/{ev['event_slug']}/erase", headers={"x-forwarded-for": "9.9.9.9"})
+    # A spoofed X-Forwarded-For must NOT redirect erasure onto another IP —
+    # identity comes from the socket/proxy-resolved client, not headers.
+    r = client.post(f"/api/guest/{ev['event_slug']}/erase", headers={"x-forwarded-for": "8.8.8.8"})
     assert r.status_code == 200
     assert r.json()["consents_deleted"] == 1
 
@@ -126,7 +127,8 @@ def test_erase_removes_only_caller_ip(client, as_admin):
     try:
         remaining = db.query(models.GuestConsent).filter(
             models.GuestConsent.event_id == ev["id"]
-        ).count()
-        assert remaining == 1  # 8.8.8.8 untouched
+        ).all()
+        assert len(remaining) == 1
+        assert remaining[0].ip_address == "8.8.8.8"  # untouched despite the header
     finally:
         db.close()

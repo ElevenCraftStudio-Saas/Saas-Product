@@ -39,13 +39,18 @@ export function absoluteUrl(url: string): string {
   return `${base}${url}`;
 }
 
-export async function getDownloadUrl(slug: string, photoId: number): Promise<string> {
-  const data = await httpGet<{ url: string; expires_in: number }>(`/guest/${slug}/photos/${photoId}/download`);
+export async function getDownloadUrl(slug: string, photoId: number, token: string): Promise<string> {
+  const data = await httpGet<{ url: string; expires_in: number }>(
+    `/guest/${slug}/photos/${photoId}/download?token=${encodeURIComponent(token)}`,
+  );
   return absoluteUrl(data.url);
 }
 
-export async function downloadAllZip(slug: string, photoIds: number[]): Promise<void> {
-  const res = await api.post(`/guest/${slug}/download-zip`, { photo_ids: photoIds }, { responseType: 'blob' });
+export async function downloadAllZip(
+  slug: string,
+  photos: Array<{ id: number; token: string }>,
+): Promise<void> {
+  const res = await api.post(`/guest/${slug}/download-zip`, { photos }, { responseType: 'blob' });
   const url = URL.createObjectURL(res.data as Blob);
   const a = document.createElement('a');
   a.href = url;

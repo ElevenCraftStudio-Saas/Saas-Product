@@ -66,6 +66,8 @@ class GuestPhoto(BaseModel):
     id: int
     filename: str
     url: str
+    # HMAC token authorizing download of this matched photo (core/signing.py).
+    download_token: str = ""
 
 
 class SelfieMatchResponse(BaseModel):
@@ -101,8 +103,13 @@ class RescanResponse(BaseModel):
     uploaded: int
 
 
-class PhotoIdsRequest(BaseModel):
-    photo_ids: List[int]
+class ZipPhotoItem(BaseModel):
+    id: int
+    token: str
+
+
+class ZipRequest(BaseModel):
+    photos: List[ZipPhotoItem]
 
 
 # Privacy / DPDP Schemas

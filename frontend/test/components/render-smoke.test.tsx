@@ -16,7 +16,10 @@ import type { EventItem, PhotoItem, GuestPhoto, ActivityRecord } from '@/types/m
 
 const event: EventItem = { id: 1, title: 'Alpha', description: null, event_date: '2030-01-01T00:00:00Z', event_slug: 'alpha-1', qr_code_path: null, url: null, created_at: '2026-01-01T00:00:00Z', photographer_id: 1 };
 const photos: PhotoItem[] = [{ id: 1, event_id: 1, filename: 'a.jpg', filepath: 'k', url: 'u', processing_status: 'completed', uploaded_at: '2026-01-01T00:00:00Z' }];
-const guestPhotos: GuestPhoto[] = [{ id: 1, filename: 'a.jpg', url: 'u' }, { id: 2, filename: 'b.jpg', url: 'u' }];
+const guestPhotos: GuestPhoto[] = [
+  { id: 1, filename: 'a.jpg', url: 'u', download_token: 'tok-1' },
+  { id: 2, filename: 'b.jpg', url: 'u', download_token: 'tok-2' },
+];
 const activity: ActivityRecord[] = [{ id: 1, action: 'PHOTO_DOWNLOADED', event_id: 1, photo_id: null, ip_address: null, detail: null, created_at: new Date().toISOString() }];
 const noop = () => {};
 

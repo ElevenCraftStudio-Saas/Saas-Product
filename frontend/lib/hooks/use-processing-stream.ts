@@ -8,7 +8,16 @@ interface ProcessingState {
   message: string;
   progress: number;
   count?: number;
-  photos?: Array<{ id: number; filename: string; url: string }>;
+  photos?: Array<{ id: number; filename: string; url: string; download_token: string }>;
+}
+
+const TERMINAL_TYPES = new Set(['completed', 'error', 'timeout']);
+
+/** The API lives on its own origin — EventSource can't use the axios instance,
+ *  so build the absolute URL from the same env the axios baseURL uses. */
+function streamUrl(slug: string, requestId: string): string {
+  const base = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api').replace(/\/$/, '');
+  return `${base}/guest/${slug}/processing-stream?request_id=${encodeURIComponent(requestId)}`;
 }
 
 export function useProcessingStream(slug: string, enabled: boolean, requestId: string) {
@@ -18,20 +27,31 @@ export function useProcessingStream(slug: string, enabled: boolean, requestId: s
   useEffect(() => {
     if (!enabled || !slug || !requestId) return;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 65000); // 65s timeout
+    let done = false;
+    const eventSource = new EventSource(streamUrl(slug, requestId));
 
-    const eventSource = new EventSource(
-      `/api/guest/${slug}/processing-stream?request_id=${encodeURIComponent(requestId)}`
-    );
+    // EventSource has no native timeout — close it ourselves if no terminal
+    // frame ever arrives (server caps streams at 60s; 65s = server cap + slack).
+    const timeoutId = setTimeout(() => {
+      if (!done) {
+        done = true;
+        eventSource.close();
+        setError('Processing timed out. Please try again.');
+      }
+    }, 65000);
 
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data) as ProcessingState;
         setState(data);
 
-        if (data.type === 'error') {
-          setError(data.message);
+        if (TERMINAL_TYPES.has(data.type)) {
+          // Server ends the stream after a terminal frame; close before the
+          // browser's auto-reconnect kicks in.
+          done = true;
+          eventSource.close();
+          if (data.type === 'error') setError(data.message);
+          if (data.type === 'timeout') setError('Processing timed out. Please try again.');
         }
       } catch (e) {
         console.error('Failed to parse SSE data:', e);
@@ -39,9 +59,14 @@ export function useProcessingStream(slug: string, enabled: boolean, requestId: s
     };
 
     eventSource.onerror = (err) => {
-      console.error('SSE error:', err);
+      // Fires on normal server-side stream close too — only a real error if
+      // we never saw a terminal frame.
       eventSource.close();
-      setError('Connection lost');
+      if (!done) {
+        console.error('SSE error:', err);
+        done = true;
+        setError('Connection lost');
+      }
     };
 
     return () => {

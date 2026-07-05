@@ -25,7 +25,7 @@ describe('useGuestFlow', () => {
     act(() => result.current.setSelfie(blob));
     expect(result.current.selfie).toBe(blob);
 
-    act(() => result.current.setMatches({ count: 1, photos: [{ id: 1, filename: 'a', url: 'u' }] }));
+    act(() => result.current.setMatches({ count: 1, photos: [{ id: 1, filename: 'a', url: 'u', download_token: 'tok-1' }] }));
     expect(result.current.matches?.count).toBe(1);
 
     act(() => result.current.reset());

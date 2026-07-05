@@ -133,6 +133,8 @@ export interface GuestPhoto {
   id: number;
   filename: string;
   url: string;
+  /** HMAC token authorizing download of this matched photo. */
+  download_token: string;
 }
 export interface SelfieMatchResult {
   count: number;

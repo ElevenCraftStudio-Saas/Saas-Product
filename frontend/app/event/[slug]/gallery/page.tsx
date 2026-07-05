@@ -28,7 +28,7 @@ export default function GalleryPage() {
 
   const downloadOne = async (p: GuestPhoto) => {
     try {
-      const url = await getDownloadUrl(slug, p.id);
+      const url = await getDownloadUrl(slug, p.id, p.download_token);
       const a = document.createElement('a');
       a.href = url;
       a.download = p.filename;
@@ -43,7 +43,7 @@ export default function GalleryPage() {
   const downloadAll = async () => {
     setZipping(true);
     try {
-      await downloadAllZip(slug, photos.map((p) => p.id));
+      await downloadAllZip(slug, photos.map((p) => ({ id: p.id, token: p.download_token })));
     } catch {
       toast.error('Couldn’t prepare the download');
     } finally {

@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     DEFAULT_EVENT_LIMIT: int = 2
     DEFAULT_STORAGE_LIMIT_MB: int = 2048
     CONSENT_VERSION: str = "1.0"
+    # Signs guest download tokens (core/signing.py). Unset → ephemeral
+    # per-process key (dev only; tokens die on restart).
+    SECRET_KEY: str | None = None
     SENTRY_DSN: str | None = None
     # Base64-encoded Firebase service-account JSON (alternative to GOOGLE_APPLICATION_CREDENTIALS).
     # Decoded and written to FIREBASE_CREDENTIALS at startup by firebase.py.

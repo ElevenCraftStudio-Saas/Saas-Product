@@ -36,20 +36,21 @@ describe('guest service', () => {
     expect(ev.title).toBe('Alpha Wedding');
   });
 
-  it('submits a selfie as multipart (file + consent) and maps the result', async () => {
+  it('submits a selfie as multipart (file + consent + request_id) and maps the result', async () => {
     // axios multipart over jsdom+MSW hangs, so spy the call instead of the wire.
-    const spy = vi.spyOn(api, 'post').mockResolvedValue({ data: { count: 2, photos: [{ id: 10, filename: 'a.jpg', url: 'u' }] } });
-    const res = await submitSelfie('alpha-1', new Blob(['x'], { type: 'image/jpeg' }));
+    const spy = vi.spyOn(api, 'post').mockResolvedValue({ data: { request_id: 'req-1', message: 'Processing started.' } });
+    const res = await submitSelfie('alpha-1', new Blob(['x'], { type: 'image/jpeg' }), 'req-1');
     expect(spy).toHaveBeenCalledWith('/guest/alpha-1/selfie', expect.any(FormData), expect.objectContaining({ headers: { 'Content-Type': 'multipart/form-data' } }));
     const sentForm = spy.mock.calls[0][1] as FormData;
     expect(sentForm.get('consent')).toBe('true');
+    expect(sentForm.get('request_id')).toBe('req-1');
     expect(sentForm.has('file')).toBe(true);
-    expect(res.count).toBe(2);
+    expect(res.request_id).toBe('req-1');
     spy.mockRestore();
   });
 
-  it('resolves a presigned download url', async () => {
-    const url = await getDownloadUrl('alpha-1', 10);
+  it('resolves a presigned download url with a match token', async () => {
+    const url = await getDownloadUrl('alpha-1', 10, 'tok-1');
     expect(url).toBe('https://s3/original/a.jpg');
   });
 });

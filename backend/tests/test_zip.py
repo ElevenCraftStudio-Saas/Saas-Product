@@ -1,5 +1,6 @@
 import io
 import zipfile
+from app.core import signing
 from app.database import SessionLocal
 from app.models import models
 from app.services import photo_ingest
@@ -20,8 +21,9 @@ def test_download_zip(client, as_studio):
     finally:
         db.close()
 
-    client.app.dependency_overrides.clear()  # zip endpoint is public
-    r = client.post(f"/api/guest/{ev['event_slug']}/download-zip", json={"photo_ids": ids})
+    client.app.dependency_overrides.clear()  # zip endpoint is public (token-authorized)
+    items = [{"id": pid, "token": signing.sign_download(ev["id"], pid)} for pid in ids]
+    r = client.post(f"/api/guest/{ev['event_slug']}/download-zip", json={"photos": items})
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/zip"
     zf = zipfile.ZipFile(io.BytesIO(r.content))
@@ -31,6 +33,14 @@ def test_download_zip(client, as_studio):
 def test_download_zip_event_isolation(client, as_studio):
     ev = _create_event(client)
     client.app.dependency_overrides.clear()
-    # photo id from no event → not found
-    r = client.post(f"/api/guest/{ev['event_slug']}/download-zip", json={"photo_ids": [999999]})
+    # Token minted for ANOTHER event's id must not authorize photos here, and
+    # a photo id from no event → not found / forbidden.
+    item = {"id": 999999, "token": signing.sign_download(ev["id"] + 1, 999999)}
+    r = client.post(f"/api/guest/{ev['event_slug']}/download-zip", json={"photos": [item]})
+    assert r.status_code == 403
+
+    # Even with a validly-signed token for this event, a photo that doesn't
+    # exist in the event is 404.
+    item = {"id": 999999, "token": signing.sign_download(ev["id"], 999999)}
+    r = client.post(f"/api/guest/{ev['event_slug']}/download-zip", json={"photos": [item]})
     assert r.status_code == 404
