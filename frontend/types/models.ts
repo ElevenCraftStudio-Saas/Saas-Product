@@ -129,6 +129,19 @@ export interface GuestEvent {
   event_slug: string;
   url: string | null;
 }
+export interface FolderWatch {
+  id: number;
+  event_id: number;
+  folder_path: string;
+  enabled: boolean;
+  created_at: string;
+  last_scan_at: string | null;
+  watching: boolean;
+  photo_count: number;
+}
+export interface RescanResult {
+  uploaded: number;
+}
 export interface GuestPhoto {
   id: number;
   filename: string;

@@ -14,6 +14,7 @@ import { DashboardSection } from '@/components/dashboard/dashboard-section';
 import { EventWorkspaceHeader } from '@/components/events/event-workspace-header';
 import { EventStatsGrid } from '@/components/events/event-stats-grid';
 import { QRCard } from '@/components/events/qr-card';
+import { WatchFoldersCard } from '@/components/events/watch-folders-card';
 import { UploadDropzone } from '@/components/photos/upload-dropzone';
 import { UploadToolbar } from '@/components/photos/upload-toolbar';
 import { UploadQueue } from '@/components/photos/upload-queue';
@@ -81,6 +82,9 @@ export default function EventWorkspacePage() {
           </>
         )}
       </section>
+
+      {/* Auto-import folders (server-side folder watch) */}
+      <WatchFoldersCard eventId={id} />
 
       {/* Recent uploads + QR */}
       <div className="grid gap-6 lg:grid-cols-3">

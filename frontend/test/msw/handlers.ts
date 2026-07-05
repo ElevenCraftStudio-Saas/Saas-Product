@@ -25,6 +25,20 @@ export const handlers = [
 
   http.delete(`${API}/events/:id`, () => new HttpResponse(null, { status: 204 })),
 
+  // Folder watch (auto-import)
+  http.get(`${API}/events/:id/watch-folders`, ({ params }) =>
+    HttpResponse.json([
+      { id: 5, event_id: Number(params.id), folder_path: 'D:\\Weddings\\Alpha', enabled: true, created_at: '2026-01-01T00:00:00Z', last_scan_at: '2026-01-02T00:00:00Z', watching: true, photo_count: 12 },
+    ]),
+  ),
+  http.post(`${API}/events/:id/watch-folders`, async ({ params, request }) => {
+    const body = (await request.json()) as { folder_path: string };
+    return HttpResponse.json({ id: 6, event_id: Number(params.id), folder_path: body.folder_path, enabled: true, created_at: '2026-01-03T00:00:00Z', last_scan_at: null, watching: true, photo_count: 0 });
+  }),
+  http.delete(`${API}/events/:id/watch-folders/:watchId`, () => new HttpResponse(null, { status: 204 })),
+  http.post(`${API}/events/:id/watch-folders/:watchId/rescan`, () => HttpResponse.json({ uploaded: 3 })),
+  http.post(`${API}/events/:id/rescan-all`, () => HttpResponse.json({ uploaded: 7 })),
+
   http.get(`${API}/photos/event/:id`, () =>
     HttpResponse.json([
       { id: 10, event_id: 1, filename: 'a.jpg', filepath: 'k', url: 'https://s3/t/a.webp', processing_status: 'completed', uploaded_at: '2026-01-01T00:00:00Z' },
