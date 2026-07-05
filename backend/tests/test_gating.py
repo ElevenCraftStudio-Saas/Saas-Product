@@ -9,9 +9,11 @@ def test_admin_can_list_tokens(client, as_admin):
     assert client.get("/api/auth/tokens").status_code == 200
 
 
-def test_user_cannot_start_watch_folder(client, as_user):
+def test_watch_folder_on_missing_event_404s(client, as_user):
+    # Watch folders are owner-operable now (see test_watch_ownership.py for
+    # the full matrix); a nonexistent event is a plain 404.
     r = client.post("/api/events/1/watch-folders", json={"folder_path": "/x"})
-    assert r.status_code == 403
+    assert r.status_code == 404
 
 
 def test_user_cannot_create_token(client, as_user):
@@ -45,8 +47,10 @@ def test_user_blocked_from_consents(client, as_user):
     assert client.get("/api/events/1/consents").status_code == 403
 
 
-def test_user_blocked_from_rescan_all(client, as_user):
-    assert client.post("/api/events/1/rescan-all").status_code == 403
+def test_rescan_all_on_missing_event_404s(client, as_user):
+    # Owner-operable now — nonexistent event is 404, other-owner is 403
+    # (covered in test_watch_ownership.py).
+    assert client.post("/api/events/1/rescan-all").status_code == 404
 
 
 def test_user_blocked_from_admin_analytics(client, as_user):

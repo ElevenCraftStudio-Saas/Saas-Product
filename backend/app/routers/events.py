@@ -5,7 +5,7 @@ from ..config import settings
 from ..database import get_db
 from ..models import models
 from ..schemas import schemas
-from .deps import require_admin, require_user
+from .deps import get_current_user, require_admin, require_user
 from ..utils.qr import generate_qr_code
 import uuid
 import re
@@ -39,6 +39,18 @@ def _event_or_404(event_id: int, db: Session) -> models.Event:
     event = db.query(models.Event).filter(models.Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
+    return event
+
+
+def _operable_event_or_403(event_id: int, user: models.User, db: Session) -> models.Event:
+    """Event-operator access: admins operate any event, studios only their own.
+
+    Used by folder-watch routes so a one-person studio can run auto-ingest on
+    its own events without an admin account.
+    """
+    event = _event_or_404(event_id, db)
+    if user.role != "admin" and event.photographer_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your event")
     return event
 
 
@@ -224,10 +236,13 @@ def add_watch_folder(
     event_id: int,
     body: schemas.FolderWatchCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(require_admin),
+    current_user: models.User = Depends(get_current_user),
 ):
-    """Add a folder to watch for this event and start watching it."""
-    _event_or_404(event_id, db)
+    """Add a folder to watch for this event and start watching it.
+
+    Studios manage watch folders on their own events; admins on any event.
+    """
+    _operable_event_or_403(event_id, current_user, db)
     folder = _validate_folder_path(body.folder_path)
 
     existing = db.query(models.FolderWatch).filter(
@@ -252,9 +267,9 @@ def add_watch_folder(
 def list_watch_folders(
     event_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(require_admin),
+    current_user: models.User = Depends(get_current_user),
 ):
-    _event_or_404(event_id, db)
+    _operable_event_or_403(event_id, current_user, db)
     watches = (
         db.query(models.FolderWatch)
         .filter(models.FolderWatch.event_id == event_id)
@@ -269,9 +284,10 @@ def remove_watch_folder(
     event_id: int,
     watch_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(require_admin),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Stop watching one folder and remove it."""
+    _operable_event_or_403(event_id, current_user, db)
     watch = _watch_or_404(event_id, watch_id, db)
     watcher_manager.stop(watch.id)
     db.delete(watch)
@@ -285,9 +301,10 @@ def rescan_watch_folder(
     event_id: int,
     watch_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(require_admin),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Manually rescan one watched folder now."""
+    _operable_event_or_403(event_id, current_user, db)
     watch = _watch_or_404(event_id, watch_id, db)
     if not os.path.isdir(watch.folder_path):
         raise HTTPException(status_code=400, detail=f"Folder no longer exists: {watch.folder_path}")
@@ -299,10 +316,10 @@ def rescan_watch_folder(
 def rescan_all_folders(
     event_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(require_admin),
+    current_user: models.User = Depends(get_current_user),
 ):
     """Rescan every watched folder for this event."""
-    _event_or_404(event_id, db)
+    _operable_event_or_403(event_id, current_user, db)
     watches = db.query(models.FolderWatch).filter(models.FolderWatch.event_id == event_id).all()
     total = 0
     for w in watches:
