@@ -23,7 +23,7 @@ def test_users_payload(client, as_admin):
     row = next(x for x in r.json() if x["id"] == s.id)
     assert row["event_count"] == 1
     assert row["effective_limit"] == 2
-    assert row["effective_storage_limit_mb"] == 2048
+    assert row["effective_storage_limit_mb"] == 51200
     assert row["storage_used_mb"] == 0
     assert row["max_events"] is None
 

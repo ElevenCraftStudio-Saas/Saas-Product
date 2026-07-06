@@ -17,8 +17,8 @@ def test_default_event_limit_is_two():
     assert limits.DEFAULT_EVENT_LIMIT == 2
 
 
-def test_default_storage_limit_is_2048():
-    assert limits.DEFAULT_STORAGE_LIMIT_MB == 2048
+def test_default_storage_limit_is_50gb():
+    assert limits.DEFAULT_STORAGE_LIMIT_MB == 51200  # 50 GB
 
 
 def test_effective_event_limit():
@@ -27,7 +27,7 @@ def test_effective_event_limit():
 
 
 def test_effective_storage_limit():
-    assert limits.effective_storage_limit_mb(models.User(storage_limit_mb=None)) == 2048
+    assert limits.effective_storage_limit_mb(models.User(storage_limit_mb=None)) == 51200
     assert limits.effective_storage_limit_mb(models.User(storage_limit_mb=500)) == 500
 
 

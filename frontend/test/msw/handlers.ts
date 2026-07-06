@@ -53,21 +53,21 @@ export const handlers = [
   ),
   http.get(`${API}/admin/users`, () =>
     HttpResponse.json([
-      { id: 1, email: 'a@test.ai', name: 'A', phone: null, role: 'admin', max_events: null, storage_limit_mb: null, event_count: 0, effective_limit: 2, effective_storage_limit_mb: 2048, storage_used_mb: 0, created_at: '2026-01-01T00:00:00Z' },
-      { id: 2, email: 'u@test.ai', name: 'U', phone: null, role: 'user', max_events: null, storage_limit_mb: null, event_count: 3, effective_limit: 2, effective_storage_limit_mb: 2048, storage_used_mb: 512, created_at: '2026-01-01T00:00:00Z' },
+      { id: 1, email: 'a@test.ai', name: 'A', phone: null, role: 'admin', max_events: null, storage_limit_mb: null, event_count: 0, effective_limit: 2, effective_storage_limit_mb: 51200, storage_used_mb: 0, created_at: '2026-01-01T00:00:00Z' },
+      { id: 2, email: 'u@test.ai', name: 'U', phone: null, role: 'user', max_events: null, storage_limit_mb: null, event_count: 3, effective_limit: 2, effective_storage_limit_mb: 51200, storage_used_mb: 512, created_at: '2026-01-01T00:00:00Z' },
     ]),
   ),
   http.patch(`${API}/admin/users/:id/role`, async ({ request, params }) => {
     const body = (await request.json()) as { role: string };
-    return HttpResponse.json({ id: Number(params.id), email: 'u@test.ai', name: 'U', phone: null, role: body.role, max_events: null, storage_limit_mb: null, event_count: 0, effective_limit: 2, effective_storage_limit_mb: 2048, storage_used_mb: 0, created_at: '2026-01-01T00:00:00Z' });
+    return HttpResponse.json({ id: Number(params.id), email: 'u@test.ai', name: 'U', phone: null, role: body.role, max_events: null, storage_limit_mb: null, event_count: 0, effective_limit: 2, effective_storage_limit_mb: 51200, storage_used_mb: 0, created_at: '2026-01-01T00:00:00Z' });
   }),
   http.patch(`${API}/admin/users/:id/limit`, async ({ request, params }) => {
     const body = (await request.json()) as { max_events: number | null };
-    return HttpResponse.json({ id: Number(params.id), email: 'u@test.ai', name: 'U', phone: null, role: 'user', max_events: body.max_events, storage_limit_mb: null, event_count: 0, effective_limit: body.max_events ?? 2, effective_storage_limit_mb: 2048, storage_used_mb: 0, created_at: '2026-01-01T00:00:00Z' });
+    return HttpResponse.json({ id: Number(params.id), email: 'u@test.ai', name: 'U', phone: null, role: 'user', max_events: body.max_events, storage_limit_mb: null, event_count: 0, effective_limit: body.max_events ?? 2, effective_storage_limit_mb: 51200, storage_used_mb: 0, created_at: '2026-01-01T00:00:00Z' });
   }),
   http.patch(`${API}/admin/users/:id/storage`, async ({ request, params }) => {
     const body = (await request.json()) as { storage_limit_mb: number | null };
-    return HttpResponse.json({ id: Number(params.id), email: 'u@test.ai', name: 'U', phone: null, role: 'user', max_events: null, storage_limit_mb: body.storage_limit_mb, event_count: 0, effective_limit: 2, effective_storage_limit_mb: body.storage_limit_mb ?? 2048, storage_used_mb: 0, created_at: '2026-01-01T00:00:00Z' });
+    return HttpResponse.json({ id: Number(params.id), email: 'u@test.ai', name: 'U', phone: null, role: 'user', max_events: null, storage_limit_mb: body.storage_limit_mb, event_count: 0, effective_limit: 2, effective_storage_limit_mb: body.storage_limit_mb ?? 51200, storage_used_mb: 0, created_at: '2026-01-01T00:00:00Z' });
   }),
   http.get(`${API}/auth/tokens`, () =>
     HttpResponse.json([{ id: 1, name: 'agent', token_prefix: 'wfa_abc', revoked: false, created_at: '2026-01-01T00:00:00Z', last_used_at: null }]),

@@ -6,7 +6,7 @@ from sqlalchemy import func
 from ..models import models
 
 DEFAULT_EVENT_LIMIT = int(os.getenv("DEFAULT_EVENT_LIMIT", "2"))
-DEFAULT_STORAGE_LIMIT_MB = int(os.getenv("DEFAULT_STORAGE_LIMIT_MB", "2048"))
+DEFAULT_STORAGE_LIMIT_MB = int(os.getenv("DEFAULT_STORAGE_LIMIT_MB", "51200"))  # 50 GB
 
 
 def effective_event_limit(user) -> int:

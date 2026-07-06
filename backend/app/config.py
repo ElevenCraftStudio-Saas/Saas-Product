@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str | None = None
     MATCH_THRESHOLD: float = 0.6
     DEFAULT_EVENT_LIMIT: int = 2
-    DEFAULT_STORAGE_LIMIT_MB: int = 2048
+    DEFAULT_STORAGE_LIMIT_MB: int = 51200  # 50 GB per studio
     CONSENT_VERSION: str = "1.0"
     # Signs guest download tokens (core/signing.py). Unset → ephemeral
     # per-process key (dev only; tokens die on restart).
