@@ -1,0 +1,13 @@
+region      = "us-east-1"
+environment = "staging"
+
+app_domain   = "api.wedfind.elevencraftstudio.com"
+frontend_url = "https://wedfind.elevencraftstudio.com"
+
+db_password = "CHANGE_ME_strong_password"
+
+# Optional
+# alarm_email       = "you@example.com"
+# backend_image_tag = "2026-07-05-abc1234"
+# redis_mode        = "node"   # keep node until Celery moves to SQS
+# api_desired_count = 2
