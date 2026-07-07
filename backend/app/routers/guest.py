@@ -7,7 +7,6 @@ GET  /api/guest/{slug}/processing-stream           -> SSE: real-time selfie proc
 """
 import os
 import io
-import time
 import uuid
 import zipfile
 import json
@@ -29,6 +28,7 @@ from ..services.s3_service import s3_service
 from ..services import activity
 from ..core.limiter import limiter
 from ..core import signing
+from ..services.processing_state import get_store
 
 router = APIRouter()
 logger = logging.getLogger("wedfind.guest")
@@ -41,32 +41,20 @@ MAX_SELFIE_BYTES = 10 * 1024 * 1024  # 10 MB
 ALLOWED_MIME = {"image/jpeg", "image/png"}
 DOWNLOAD_URL_TTL = 3600  # seconds
 
-# In-memory processing state for SSE (single-process only — gunicorn runs -w 1;
-# move to Redis before scaling web replicas). Entries are (state, monotonic ts)
-# and are lazily evicted after STATE_TTL_SECONDS so clients that never connect
-# can't grow the dict forever.
-STATE_TTL_SECONDS = 600
-_processing_state: dict[str, tuple[dict, float]] = {}
-
-
-def _evict_stale() -> None:
-    now = time.monotonic()
-    for key in [k for k, (_, ts) in _processing_state.items() if now - ts > STATE_TTL_SECONDS]:
-        _processing_state.pop(key, None)
+# SSE processing state lives in services/processing_state.py — Redis-backed in
+# deployments (multi-replica safe), in-process memory fallback for dev/test.
 
 
 def _state_put(request_id: str, state: dict) -> None:
-    _evict_stale()
-    _processing_state[request_id] = (state, time.monotonic())
+    get_store().put(request_id, state)
 
 
 def _state_get(request_id: str) -> dict | None:
-    item = _processing_state.get(request_id)
-    return item[0] if item else None
+    return get_store().get(request_id)
 
 
 def _state_pop(request_id: str) -> None:
-    _processing_state.pop(request_id, None)
+    get_store().pop(request_id)
 
 
 def _require_uuid(request_id: str) -> str:

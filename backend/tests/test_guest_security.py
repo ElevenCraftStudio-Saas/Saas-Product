@@ -202,17 +202,13 @@ def test_selfie_rejects_non_uuid_request_id(client, as_studio):
 
 # ---------------------------------------------------------------- SSE state
 
-def test_state_ttl_eviction():
+def test_state_helpers_roundtrip():
+    """Guest router delegates to the processing-state store (TTL eviction is
+    covered in test_processing_state.py)."""
     rid = _uuid()
     guest_router._state_put(rid, {"type": "progress", "status": "starting"})
-    assert guest_router._state_get(rid)
-
-    # Age the entry past the TTL, then trigger lazy eviction via a write.
-    guest_router._processing_state[rid] = (
-        guest_router._processing_state[rid][0],
-        time.monotonic() - guest_router.STATE_TTL_SECONDS - 1,
-    )
-    guest_router._state_put(_uuid(), {"type": "progress", "status": "starting"})
+    assert guest_router._state_get(rid) == {"type": "progress", "status": "starting"}
+    guest_router._state_pop(rid)
     assert guest_router._state_get(rid) is None
 
 
