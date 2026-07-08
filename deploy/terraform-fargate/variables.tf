@@ -39,8 +39,10 @@ variable "api_cpu" {
 }
 
 variable "api_memory" {
+  # 2 gunicorn workers each load InsightFace at import — 1024 OOM-loops
+  # (SIGKILL) on task start. 4096 verified stable.
   type    = number
-  default = 1024
+  default = 4096
 }
 
 variable "api_desired_count" {

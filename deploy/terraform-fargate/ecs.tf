@@ -29,6 +29,8 @@ locals {
   common_secrets = [
     for key in [
       "DATABASE_URL", "REDIS_URL", "S3_BUCKET", "AWS_REGION",
+      # s3_service.py reads the legacy AWS_BUCKET_NAME env name directly.
+      "AWS_BUCKET_NAME",
       "FIREBASE_PROJECT_ID", "FIREBASE_SERVICE_ACCOUNT_B64",
       "SECRET_KEY", "SENTRY_DSN",
     ] : { name = key, valueFrom = "${aws_secretsmanager_secret.app.arn}:${key}::" }
