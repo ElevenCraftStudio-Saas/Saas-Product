@@ -1,0 +1,8 @@
+# /opt/wedfind/Caddyfile — auto-HTTPS for the api domain.
+api.wedfind.elevencraftstudio.com {
+    reverse_proxy api:8000
+
+    # metrics stay private (learned from the Fargate ALB regression)
+    @metrics path /metrics
+    respond @metrics 403
+}

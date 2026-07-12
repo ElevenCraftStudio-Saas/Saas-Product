@@ -1,0 +1,79 @@
+# All-in-one single-host stack: Postgres + Redis as containers (no RDS/
+# ElastiCache), Caddy terminates TLS. Sized for t3.medium (4 GB + swap):
+# api runs ONE gunicorn worker, celery ONE process.
+#
+# Host prep: /opt/wedfind/.env (app config) — see deploy/env/lite.env.template
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wedfind
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set in host .env}
+      POSTGRES_DB: wedfind
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wedfind"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  api:
+    image: ${BACKEND_IMAGE:?set in host .env}
+    restart: unless-stopped
+    env_file: /opt/wedfind/.env
+    command: >
+      gunicorn app.main:app -k uvicorn.workers.UvicornWorker
+      -w 1 -b 0.0.0.0:8000 --timeout 120
+    environment:
+      FORWARDED_ALLOW_IPS: "*"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/uploads
+
+  worker:
+    image: ${BACKEND_IMAGE}
+    restart: unless-stopped
+    env_file: /opt/wedfind/.env
+    command: >
+      celery -A app.workers.celery_app worker
+      -Q default,face,thumbs,maintenance -c 1 --loglevel=INFO
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/uploads
+
+  beat:
+    image: ${BACKEND_IMAGE}
+    restart: unless-stopped
+    env_file: /opt/wedfind/.env
+    command: celery -A app.workers.celery_app beat --loglevel=INFO
+    depends_on:
+      db:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /opt/wedfind/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
